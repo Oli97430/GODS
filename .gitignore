@@ -1,0 +1,19 @@
+# Godot 4+ specific ignores
+.godot/
+/android/
+
+# Export / build outputs — shipped as Release assets, not committed
+/build/
+*.pck
+*.tmp
+
+# OS / editor junk
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Personal / unused heavy assets — NOT part of the project (kept locally, never committed/shipped):
+#  - music/  : personal copyrighted tracks; in-game music is GENERATED (MusicPlayer is disabled)
+#  - example/: leftover demo content from a third-party water-shader sample (unreferenced)
+/music/
+/example/

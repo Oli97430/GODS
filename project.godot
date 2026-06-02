@@ -1,0 +1,40 @@
+; Engine configuration file.
+; It's best edited using the editor UI and not directly,
+; since the parameters that go here are not all obvious.
+;
+; Format:
+;   [section] ; section goes between []
+;   param=value ; assign values to parameters
+
+config_version=5
+
+[application]
+
+config/name="GODS"
+run/main_scene="res://scenes/Main.tscn"
+config/features=PackedStringArray("4.6", "Forward Plus")
+config/icon="res://icon.svg"
+
+[autoload]
+
+GameState="*res://scripts/GameState.gd"
+TimeOfDay="*res://scripts/TimeOfDay.gd"
+WeatherSystem="*res://scripts/WeatherSystem.gd"
+AudioEngine="*res://scripts/audio/AudioEngine.gd"
+BHaptics="*res://scripts/BHaptics.gd"
+Settings="*res://scripts/Settings.gd"
+
+[physics]
+
+3d/physics_engine="Jolt Physics"
+
+[rendering]
+
+rendering_device/driver.windows="d3d12"
+
+[xr]
+
+openxr/enabled=true
+openxr/startup_alert=false
+openxr/extensions/hand_tracking=true
+shaders/enabled=true

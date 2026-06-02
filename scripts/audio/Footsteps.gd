@@ -1,0 +1,75 @@
+class_name Footsteps
+extends Node
+## Phase 22 — pas synthétisés, adaptés au BIOME sous le joueur. Écoute le signal `step` du
+## PlayerController (cadence = distance parcourue). Burst court positionnel aux pieds, volume bas,
+## micro-variation par foulée (pitch/volume + alternance G/D) pour éviter l'effet machine.
+## 5 timbres : herbe (pink HP), pierre (white HP + clic), sable (brown LP), neige (white LP long), mouillé (+sine grave).
+
+var _player: Node             # PlayerController
+var _surface_view: Node       # SurfaceView (pour biome_at + get_player)
+var _left := false
+
+func _process(_dt: float) -> void:
+	if GameState.current_scale != GameState.Scale.SURFACE:
+		return
+	if _player == null or not is_instance_valid(_player):
+		_acquire()
+
+func _acquire() -> void:
+	var scene := get_tree().current_scene
+	if scene == null:
+		return
+	_surface_view = scene.find_child("SurfaceView", true, false)
+	if _surface_view and _surface_view.has_method("get_player"):
+		var p = _surface_view.get_player()
+		if p != null and p.has_signal("step") and not p.step.is_connected(_on_step):
+			_player = p
+			p.step.connect(_on_step)
+
+func _on_step(world_pos: Vector3) -> void:
+	_left = not _left
+	var biome := PlanetGenerator.Biome.PLAINS
+	if _surface_view and _surface_view.has_method("biome_at"):
+		biome = _surface_view.biome_at(world_pos)
+	var ae := get_parent()
+	if ae and ae.has_method("play_3d"):
+		var pitch := randf_range(0.92, 1.08) * (1.02 if _left else 0.98)
+		ae.play_3d(_synth(biome), world_pos + Vector3(0, 0.05, 0), randf_range(-9.0, -5.0), pitch, "SFX")
+
+# Synthétise un burst de pas selon le biome (timbre + filtre + durée + release).
+func _synth(biome: int) -> AudioStreamWAV:
+	var dur := 0.11
+	var kind := SynthNoise.Kind.PINK
+	var ftype := Biquad.Type.HIGHPASS
+	var cut := 1300.0
+	var rel := 0.07
+	var wet := false
+	var click := false
+	match biome:
+		PlanetGenerator.Biome.ROCK:
+			kind = SynthNoise.Kind.WHITE; ftype = Biquad.Type.HIGHPASS; cut = 950.0; dur = 0.09; rel = 0.05; click = true
+		PlanetGenerator.Biome.SNOW:
+			kind = SynthNoise.Kind.WHITE; ftype = Biquad.Type.LOWPASS; cut = 1600.0; dur = 0.17; rel = 0.13
+		PlanetGenerator.Biome.BEACH:
+			kind = SynthNoise.Kind.BROWN; ftype = Biquad.Type.LOWPASS; cut = 820.0; dur = 0.13; rel = 0.09; wet = true
+		_:  # PLAINS / FOREST / repli
+			kind = SynthNoise.Kind.PINK; ftype = Biquad.Type.HIGHPASS; cut = 1300.0; dur = 0.11; rel = 0.07
+	var buf := SfxSynth.make_buffer(dur)
+	var n := buf.size()
+	var sr := float(SfxSynth.SR)
+	var nz := SynthNoise.new(kind)
+	var filt := Biquad.new(sr)
+	filt.set_params(ftype, cut, 0.7)
+	for i in n:
+		var s := filt.process(nz.next()) * 0.7
+		if click and i < 5:
+			s += 0.7 * (1.0 - float(i) / 5.0)         # transient sec (pierre)
+		buf[i] = s
+	SfxSynth.apply_ar(buf, 0.002 if click else 0.005, rel)
+	if wet:                                            # « smack » mouillé : sine grave brève
+		var ph := 0.0
+		var wn := mini(int(0.06 * sr), n)
+		for i in wn:
+			ph += TAU * 120.0 / sr
+			buf[i] += sin(ph) * 0.3 * (1.0 - float(i) / float(wn))
+	return SfxSynth.to_wav(buf)

@@ -1,0 +1,114 @@
+[gd_scene load_steps=16 format=3]
+
+[ext_resource type="Script" path="res://scripts/XRManager.gd" id="1_xrmgr"]
+[ext_resource type="Script" path="res://scripts/GalaxyView.gd" id="2_galv"]
+[ext_resource type="Script" path="res://scripts/NavigationController.gd" id="3_nav"]
+[ext_resource type="PackedScene" path="res://scenes/SystemView.tscn" id="4_sysview"]
+[ext_resource type="Script" path="res://scripts/ViewManager.gd" id="5_vm"]
+[ext_resource type="PackedScene" path="res://scenes/PlanetView.tscn" id="6_planetview"]
+[ext_resource type="PackedScene" path="res://scenes/SurfaceView.tscn" id="7_surfaceview"]
+[ext_resource type="Script" path="res://scripts/MusicPlayer.gd" id="8_music"]
+[ext_resource type="Script" path="res://scripts/HandTracking.gd" id="9_hand"]
+[ext_resource type="Script" path="res://scripts/HandVisualizer.gd" id="10_handviz"]
+[ext_resource type="PackedScene" path="res://scenes/WristComputer.tscn" id="11_wristcomp"]
+[ext_resource type="Script" path="res://scripts/TitleScreen.gd" id="12_title"]
+
+[sub_resource type="Environment" id="Environment_space"]
+background_mode = 1
+background_color = Color(0.01, 0.012, 0.025, 1)
+ambient_light_source = 1
+ambient_light_color = Color(0.04, 0.04, 0.06, 1)
+
+[sub_resource type="BoxMesh" id="BoxMesh_ray"]
+size = Vector3(0.004, 0.004, 2.0)
+
+[sub_resource type="StandardMaterial3D" id="Mat_ray"]
+shading_mode = 0
+albedo_color = Color(0.4, 0.8, 1, 0.6)
+transparency = 1
+
+[node name="Main" type="Node3D"]
+script = ExtResource("1_xrmgr")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_space")
+
+[node name="DesktopCamera" type="Camera3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 35, 90)
+current = true
+far = 4000.0
+
+[node name="XROrigin3D" type="XROrigin3D" parent="."]
+
+[node name="XRCamera3D" type="XRCamera3D" parent="XROrigin3D"]
+
+[node name="LeftController" type="XRController3D" parent="XROrigin3D"]
+tracker = &"left_hand"
+pose = &"grip"
+
+[node name="RightController" type="XRController3D" parent="XROrigin3D"]
+tracker = &"right_hand"
+pose = &"aim"
+
+[node name="AimRay" type="MeshInstance3D" parent="XROrigin3D/RightController"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -1)
+mesh = SubResource("BoxMesh_ray")
+material_override = SubResource("Mat_ray")
+
+[node name="HandTracking" type="Node3D" parent="XROrigin3D"]
+script = ExtResource("9_hand")
+
+[node name="HandVisualizer" type="Node3D" parent="XROrigin3D"]
+script = ExtResource("10_handviz")
+hand_tracking_path = NodePath("../HandTracking")
+aim_ray_path = NodePath("../RightController/AimRay")
+
+[node name="WristComputer" parent="XROrigin3D" instance=ExtResource("11_wristcomp")]
+hand_tracking_path = NodePath("../HandTracking")
+left_controller_path = NodePath("../LeftController")
+right_controller_path = NodePath("../RightController")
+camera_path = NodePath("../XRCamera3D")
+view_manager_path = NodePath("../../ViewManager")
+surface_view_path = NodePath("../../SurfaceView")
+
+[node name="GalaxyView" type="MultiMeshInstance3D" parent="."]
+script = ExtResource("2_galv")
+
+[node name="NavigationController" type="Node" parent="."]
+script = ExtResource("3_nav")
+
+[node name="HUD" type="CanvasLayer" parent="."]
+
+[node name="InfoLabel" type="Label" parent="HUD"]
+offset_left = 16.0
+offset_top = 16.0
+offset_right = 460.0
+offset_bottom = 80.0
+theme_override_font_sizes/font_size = 18
+text = ""
+
+[node name="InfoPanel3D" type="Label3D" parent="."]
+pixel_size = 0.002
+billboard = 1
+no_depth_test = true
+double_sided = true
+modulate = Color(0.8, 0.95, 1, 1)
+visible = false
+
+[node name="SystemView" parent="." instance=ExtResource("4_sysview")]
+visible = false
+
+[node name="PlanetView" parent="." instance=ExtResource("6_planetview")]
+visible = false
+
+[node name="SurfaceView" parent="." instance=ExtResource("7_surfaceview")]
+visible = false
+
+[node name="ViewManager" type="Node" parent="."]
+script = ExtResource("5_vm")
+
+[node name="MusicPlayer" type="AudioStreamPlayer" parent="."]
+script = ExtResource("8_music")
+
+[node name="TitleScreen" type="Node3D" parent="."]
+script = ExtResource("12_title")
