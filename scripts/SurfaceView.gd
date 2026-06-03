@@ -23,6 +23,7 @@ var _sky: SkyManager
 var _sky3d: Sky3D   # addon Sky3D : dôme de ciel + nuages volumétriques (ciel de surface)
 var _starfield: Starfield
 var _fireflies   # lucioles/spores nocturnes (Fireflies.gd) — vie ambiante autour du joueur la nuit
+var _biolum := 0.0   # force de bioluminescence de la planète courante (0 = pas de flore luminescente)
 var _rain: RainEffect
 var _lightning: LightningEffect
 var _surface_moons: SurfaceMoons   # phase 14 : lunes dans le ciel
@@ -81,6 +82,10 @@ func build(seed_local: int, landing_dir: Vector3, atmo_color: Color, star_system
 	_setup_environment(atmo_color)
 	# Soleil + ciel + fog dynamiques pilotés par TimeOfDay (point d'atterrissage fixe).
 	_sky.setup(_sun, _landing_dir, _surface_env, atmo_color, seed_local)   # seed => aurores déterministes
+	# Bioluminescence (vie nocturne) : ~40% des planètes ont une flore luminescente (déterministe par seed).
+	var brng := RandomNumberGenerator.new()
+	brng.seed = seed_local + 0xB107
+	_biolum = brng.randf_range(0.5, 1.1) if brng.randf() < 0.4 else 0.0
 	# (Sky3D désactivé : non instanciable proprement par code — voir _setup_sky3d. Ciel = sky_dynamic.)
 	_lightning.configure(seed_local)   # éclairs déterministes par seed
 	# Océan : niveau de mer + teinte partagés avec l'orbite (même seed) ; ciel = atmo_color.
@@ -279,7 +284,9 @@ func _process(delta: float) -> void:
 				_player.spawn_at(Vector3(p.x, _chunks.ground_height_at(p) + 1.0, p.z))
 			_player.set_frozen(false)
 			_waiting_ground = false
-	# Lucioles nocturnes (vie ambiante) : nuée ∝ nuit autour du joueur (même seuil que SkyManager).
+	# Vie nocturne : facteur nuit PARTAGÉ (lucioles + bioluminescence flore), même seuil que SkyManager.
+	var night := 1.0 - smoothstep(-0.05, 0.18, sun_altitude())
 	if _fireflies:
-		_fireflies.update(_player.global_position, 1.0 - smoothstep(-0.05, 0.18, sun_altitude()), delta)
+		_fireflies.update(_player.global_position, night, delta)
+	RenderingServer.global_shader_parameter_set("biolum_glow", _biolum * night)   # la flore luminescente émet la nuit
 	_update_ambient_haptics(delta)

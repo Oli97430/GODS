@@ -9,6 +9,11 @@ uniform float wind_strength : hint_range(0.0, 0.3) = 0.04;
 uniform float wind_speed = 1.5;
 uniform float wind_scale = 0.12;   // variation spatiale de la phase (par mètre monde)
 
+// Bioluminescence (vie nocturne) : pilotée par SurfaceView (= force biolum de la planète × facteur nuit).
+// GLOBAL uniform => une seule valeur pour toute la végétation. À 0 (jour OU planète non-biolum) =>
+// EMISSION = 0 => rendu STRICTEMENT identique (zéro régression). > 0 la nuit => la flore émet sa couleur.
+global uniform float biolum_glow;
+
 // Teinte par instance (phase 24) : INSTANCE_CUSTOM.rgb si fournie (alpha>0.5) => variété de forêt.
 // Les meshes SANS custom data (herbe) ont INSTANCE_CUSTOM=0 => alpha<0.5 => teinte neutre (jamais noir).
 varying vec3 v_tint;
@@ -25,4 +30,5 @@ void vertex() {
 void fragment() {
 	ALBEDO = COLOR.rgb * v_tint;   // couleur de vertex (biome) × teinte d'instance
 	ROUGHNESS = 1.0;
+	EMISSION = ALBEDO * biolum_glow;   // bioluminescence nocturne : la flore émet sa couleur (0 le jour / hors planète biolum => no-op)
 }
