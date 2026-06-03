@@ -53,6 +53,7 @@ func _ready() -> void:
 	var hud := get_node_or_null("HUD")
 	if hud != null:
 		hud.add_child(preload("res://scripts/Compass.gd").new())
+		hud.add_child(preload("res://scripts/CombatHUD.gd").new())   # HUD combat (PV/vague/score) — bureau, masqué en XR
 
 # Rendu vers le casque.
 func _enable_xr_mode() -> void:

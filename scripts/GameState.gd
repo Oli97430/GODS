@@ -22,3 +22,14 @@ var atmosphere_enabled: bool = true
 
 # Vrai quand le menu Options (overlay bureau) est ouvert : bloque l'entrée jeu (locomotion/navigation).
 var options_open: bool = false
+
+# --- Tableau de bord COMBAT (phase 26 CP3) : blackboard partagé joueur ↔ vagues ↔ HUD/montre. ---
+# Écrit par PlayerController (PV/mort) et WaveManager (vague/score) ; lu par CombatHUD (bureau) + WristComputer (VR).
+var combat_active: bool = false   # une arme est équipée (combat opt-in en cours)
+var combat_hp: float = 100.0      # points de vie courants du joueur
+var combat_hp_max: float = 100.0  # PV max
+var combat_dead: bool = false     # joueur éliminé (réapparition en cours)
+var combat_wave: int = 0          # numéro de la vague courante
+var combat_score: int = 0         # drones détruits dans la session de combat courante
+var combat_result_wave: int = 0   # vague atteinte (figée à la mort) — pour l'écran de fin de run
+var combat_result_score: int = 0  # score final (figé à la mort)

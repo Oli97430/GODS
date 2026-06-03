@@ -35,6 +35,11 @@ var _music: GenerativeMusic
 const SEA_HEIGHT := 0.0         # niveau de mer en espace-surface (DEFAULT_SEA_LEVEL = 0)
 const WATER_BAND := 12.0        # m : sous cette altitude au-dessus de la mer => clapotis audible
 
+# Univers sous-marin (CP3) : passe-bas sur Master pour étouffer le son sous l'eau (créé dans _setup_buses).
+var _lowpass: AudioEffectLowPassFilter
+var _lowpass_idx := -1
+var _uw_on := false
+
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS   # l'ambiance continue même en pause
 	_setup_buses()
@@ -64,6 +69,29 @@ func _setup_buses() -> void:
 	rv.dry = 0.88
 	rv.spread = 1.0
 	AudioServer.add_bus_effect(_bus("Ambient_World"), rv)
+	# Univers sous-marin (CP3) : passe-bas sur Master, étouffe TOUT le son sous l'eau. DÉSACTIVÉ par défaut
+	# (=> zéro régression hors de l'eau) ; SurfaceView l'active + module le cutoff selon l'immersion.
+	_lowpass = AudioEffectLowPassFilter.new()
+	_lowpass.cutoff_hz = 20000.0
+	AudioServer.add_bus_effect(_bus("Master"), _lowpass)
+	_lowpass_idx = AudioServer.get_bus_effect_count(_bus("Master")) - 1
+	AudioServer.set_bus_effect_enabled(_bus("Master"), _lowpass_idx, false)
+
+# Univers sous-marin (CP3) : étouffe le son sous l'eau (passe-bas Master). f01 = immersion 0..1.
+# Activé uniquement quand immergé (f01>0) => hors de l'eau l'effet est bypassé (mix approuvé intact).
+func set_underwater(f01: float) -> void:
+	if _lowpass == null or _lowpass_idx < 0:
+		return
+	var b := _bus("Master")
+	if f01 < 0.01:
+		if _uw_on:
+			AudioServer.set_bus_effect_enabled(b, _lowpass_idx, false)
+			_uw_on = false
+		return
+	if not _uw_on:
+		AudioServer.set_bus_effect_enabled(b, _lowpass_idx, true)
+		_uw_on = true
+	_lowpass.cutoff_hz = lerpf(18000.0, 650.0, clampf(f01, 0.0, 1.0))   # plus immergé => plus étouffé
 
 func _bus(n: String) -> int:
 	return AudioServer.get_bus_index(n)
@@ -287,6 +315,156 @@ func _free_2d() -> AudioStreamPlayer:
 # Appel de faune positionnel (déclenché par Creature via /root/AudioEngine).
 func creature_call(world_pos: Vector3, v: Dictionary) -> void:
 	play_3d(CreatureVoice.synth(v), world_pos, float(v.get("volume_db", -7.0)), 1.0, "SFX")
+
+# Atterrissage de PUISSANCE (Iron Man / Hulk) : « boom » grave synthétisé UNE fois (cache) puis joué à
+# l'impact. strength 0..1 (force de la chute) module le volume + le grave (pitch). Positionnel (suit donc
+# le passe-bas sous-marin si on s'écrase immergé).
+var _impact_wav: AudioStreamWAV
+
+func play_impact(world_pos: Vector3, strength: float) -> void:
+	if _impact_wav == null:
+		_impact_wav = _synth_impact()
+	var s := clampf(strength, 0.0, 1.0)
+	play_3d(_impact_wav, world_pos, lerpf(-7.0, 1.5, s), lerpf(1.06, 0.82, s), "SFX")
+
+# Impact lourd : sub-thump sinus descendant (le poids) + corps de bruit brun passe-bas (le « whump ») +
+# crack bref de bruit blanc passe-haut (le sol qui se fend). ~0.55 s.
+func _synth_impact() -> AudioStreamWAV:
+	var dur := 0.55
+	var buf := SfxSynth.make_buffer(dur)
+	var n := buf.size()
+	var sr := float(SfxSynth.SR)
+	var ph := 0.0
+	for i in n:
+		var t := float(i) / sr
+		var f := lerpf(95.0, 40.0, clampf(t / 0.35, 0.0, 1.0))   # sinus descendant 95 -> 40 Hz
+		ph += TAU * f / sr
+		buf[i] = sin(ph) * 0.95 * exp(-t * 7.0)
+	var nz := SynthNoise.new(SynthNoise.Kind.BROWN)
+	var lp := Biquad.new(sr)
+	lp.set_params(Biquad.Type.LOWPASS, 500.0, 0.7)
+	var bn := mini(int(0.25 * sr), n)
+	for i in bn:
+		var t := float(i) / sr
+		buf[i] += lp.process(nz.next()) * 0.8 * exp(-t * 10.0)
+	var wn := SynthNoise.new(SynthNoise.Kind.WHITE)
+	var hp := Biquad.new(sr)
+	hp.set_params(Biquad.Type.HIGHPASS, 2500.0, 0.7)
+	var cn := mini(int(0.05 * sr), n)
+	for i in cn:
+		var t := float(i) / sr
+		buf[i] += hp.process(wn.next()) * 0.5 * exp(-t * 45.0)   # transient sec du tout début
+	SfxSynth.apply_ar(buf, 0.001, 0.14)
+	return SfxSynth.to_wav(buf)
+
+# Blaster (mode combat) : « pew » laser — onde carrée descendante + éclat de bruit. Synthétisé une fois.
+var _blaster_wav: AudioStreamWAV
+
+func play_blaster(world_pos: Vector3) -> void:
+	if _blaster_wav == null:
+		_blaster_wav = _synth_blaster()
+	play_3d(_blaster_wav, world_pos, -6.0, randf_range(0.95, 1.08), "SFX")
+
+func _synth_blaster() -> AudioStreamWAV:
+	var dur := 0.16
+	var buf := SfxSynth.make_buffer(dur)
+	var n := buf.size()
+	var sr := float(SfxSynth.SR)
+	var ph := 0.0
+	for i in n:
+		var t := float(i) / sr
+		var f := lerpf(1400.0, 280.0, clampf(t / dur, 0.0, 1.0))   # zap descendant
+		ph += TAU * f / sr
+		var sq := 1.0 if sin(ph) > 0.0 else -1.0                   # carré => plus « laser »
+		buf[i] = sq * 0.5 * exp(-t * 16.0)
+	var nz := SynthNoise.new(SynthNoise.Kind.WHITE)
+	var cn := mini(int(0.02 * sr), n)
+	for i in cn:
+		buf[i] += nz.next() * 0.3 * (1.0 - float(i) / float(cn))   # éclat sec au départ
+	SfxSynth.apply_ar(buf, 0.001, 0.04)
+	return SfxSynth.to_wav(buf)
+
+var _enemy_shot_wav: AudioStreamWAV
+
+# Tir de drone ennemi : zap GRAVE descendant (plus menaçant + distinct du blaster joueur). Spatialisé => on
+# entend d'où vient le tir. Appelé par WaveManager à chaque tir de drone, à la position du drone.
+func play_enemy_shot(world_pos: Vector3) -> void:
+	if _enemy_shot_wav == null:
+		_enemy_shot_wav = _synth_enemy_shot()
+	play_3d(_enemy_shot_wav, world_pos, -9.0, randf_range(0.92, 1.05), "SFX")
+
+func _synth_enemy_shot() -> AudioStreamWAV:
+	var dur := 0.22
+	var buf := SfxSynth.make_buffer(dur)
+	var n := buf.size()
+	var sr := float(SfxSynth.SR)
+	var ph := 0.0
+	for i in n:
+		var t := float(i) / sr
+		var f := lerpf(620.0, 130.0, clampf(t / dur, 0.0, 1.0))   # grave => menaçant
+		ph += TAU * f / sr
+		var sq := 1.0 if sin(ph) > 0.0 else -1.0
+		buf[i] = sq * 0.42 * exp(-t * 11.0)
+	var nz := SynthNoise.new(SynthNoise.Kind.WHITE)
+	var cn := mini(int(0.03 * sr), n)
+	for i in cn:
+		buf[i] += nz.next() * 0.22 * (1.0 - float(i) / float(cn))
+	SfxSynth.apply_ar(buf, 0.001, 0.05)
+	return SfxSynth.to_wav(buf)
+
+var _hit_confirm_wav: AudioStreamWAV
+var _kill_confirm_wav: AudioStreamWAV
+
+# Confirmation de tir joueur sur un drone : « tic » sec et aigu (2D, non spatialisé => net). killed = drone
+# détruit => version plus brillante/montante. Appelé par PlayerController au toucher / à la destruction.
+func play_hit_confirm(killed: bool) -> void:
+	if killed:
+		if _kill_confirm_wav == null:
+			_kill_confirm_wav = _synth_confirm(true)
+		play_2d(_kill_confirm_wav, -10.0, randf_range(0.98, 1.04), "SFX")
+	else:
+		if _hit_confirm_wav == null:
+			_hit_confirm_wav = _synth_confirm(false)
+		play_2d(_hit_confirm_wav, -17.0, randf_range(0.97, 1.06), "SFX")
+
+func _synth_confirm(killed: bool) -> AudioStreamWAV:
+	var dur := 0.12 if killed else 0.05
+	var buf := SfxSynth.make_buffer(dur)
+	var n := buf.size()
+	var sr := float(SfxSynth.SR)
+	var f0 := 1600.0 if killed else 2100.0
+	var ph := 0.0
+	for i in n:
+		var t := float(i) / sr
+		var rise := 0.5 * clampf(t / dur, 0.0, 1.0) if killed else 0.0   # kill : monte (résolution)
+		var f := f0 * (1.0 + rise)
+		ph += TAU * f / sr
+		buf[i] = sin(ph) * 0.4 * exp(-t * (24.0 if killed else 55.0))
+	SfxSynth.apply_ar(buf, 0.001, 0.02)
+	return SfxSynth.to_wav(buf)
+
+var _wave_start_wav: AudioStreamWAV
+
+# Sting de début de vague : deux paliers (grave → quinte) en carré, « ça commence ». 2D. Appelé par WaveManager.
+func play_wave_start() -> void:
+	if _wave_start_wav == null:
+		_wave_start_wav = _synth_wave_start()
+	play_2d(_wave_start_wav, -11.0, 1.0, "SFX")
+
+func _synth_wave_start() -> AudioStreamWAV:
+	var dur := 0.5
+	var buf := SfxSynth.make_buffer(dur)
+	var n := buf.size()
+	var sr := float(SfxSynth.SR)
+	var ph := 0.0
+	for i in n:
+		var t := float(i) / sr
+		var f := 330.0 if t < dur * 0.5 else 495.0   # deux paliers (quinte)
+		ph += TAU * f / sr
+		var env := exp(-fmod(t, dur * 0.5) * 6.0)     # ré-attaque à chaque palier
+		buf[i] = (1.0 if sin(ph) > 0.0 else -1.0) * 0.28 * env
+	SfxSynth.apply_ar(buf, 0.004, 0.06)
+	return SfxSynth.to_wav(buf)
 
 # Active/désactive la musique générative (toggle montre).
 func set_music_enabled(on: bool) -> void:

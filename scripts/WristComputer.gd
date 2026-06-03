@@ -52,6 +52,7 @@ var _coords_label: Label
 var _seed_label: Label
 var _time_label: Label
 var _weather_label: Label
+var _combat_label: Label   # lecture combat (PV/vague/score) — visible seulement arme équipée
 var _action_button: Button
 # Contrôle du temps (phase 12) : cycle de time_scale + saut de phase du jour.
 const SPEED_PRESETS := [0.0, 1.0, 10.0, 60.0, 600.0]
@@ -60,6 +61,9 @@ const SKIP_NAMES := ["Aube", "Midi", "Soir", "Minuit"]
 var _speed_button: Button
 var _skip_button: Button
 var _weather_button: Button
+var _lamp_button: Button   # lampe nocturne du joueur (univers sous-marin / nuit)
+var _weapon_button: Button   # revolver du joueur (mode combat opt-in)
+var _plasma_button: Button   # fusil à plasma du joueur
 var _speed_idx := 1   # démarre à ×1 (cohérent avec le défaut TimeOfDay = 1.0 ; presets : pause/1/10/60/600)
 var _skip_idx := 0
 
@@ -112,6 +116,7 @@ func _build_ui() -> void:
 	_seed_label = _add_label(vbox, "—", 14, Color(0.60, 0.70, 0.80))
 	_time_label = _add_label(vbox, "—", 16, Color(1.0, 0.85, 0.55))   # heure + vitesse (phase 12)
 	_weather_label = _add_label(vbox, "—", 15, Color(0.70, 0.82, 0.95))   # météo (phase 13)
+	_combat_label = _add_label(vbox, "", 16, Color(1.0, 0.62, 0.55))      # combat (phase 26 CP3)
 
 	var spacer := Control.new()
 	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -141,6 +146,28 @@ func _build_ui() -> void:
 	_weather_button.pressed.connect(_on_weather)
 	ctrl_row.add_child(_weather_button)
 	_refresh_time_buttons()
+
+	# Lampe nocturne : bascule la lampe du joueur (spot main droite / caméra). Le texte reflète l'état.
+	_lamp_button = Button.new()
+	_lamp_button.text = "Lampe OFF"
+	_lamp_button.add_theme_font_size_override("font_size", 18)
+	_lamp_button.custom_minimum_size = Vector2(0, 48)
+	_lamp_button.pressed.connect(_on_lamp)
+	vbox.add_child(_lamp_button)
+
+	# Armes (mode combat opt-in) : commute revolver / plasma (ré-appui = dégainer).
+	_weapon_button = Button.new()
+	_weapon_button.text = "Revolver"
+	_weapon_button.add_theme_font_size_override("font_size", 18)
+	_weapon_button.custom_minimum_size = Vector2(0, 46)
+	_weapon_button.pressed.connect(_on_weapon)
+	vbox.add_child(_weapon_button)
+	_plasma_button = Button.new()
+	_plasma_button.text = "Plasma"
+	_plasma_button.add_theme_font_size_override("font_size", 18)
+	_plasma_button.custom_minimum_size = Vector2(0, 46)
+	_plasma_button.pressed.connect(_on_plasma)
+	vbox.add_child(_plasma_button)
 
 	_action_button = Button.new()
 	_action_button.text = "—"
@@ -367,6 +394,14 @@ func _update_content() -> void:
 				_weather_button.text = WeatherSystem.force_mode_name()
 		else:
 			_weather_label.text = "Météo : —"
+	if _combat_label:
+		if GameState.combat_active:
+			if GameState.combat_dead:
+				_combat_label.text = "⚔ ÉLIMINÉ — V%d Score %d" % [GameState.combat_result_wave, GameState.combat_result_score]
+			else:
+				_combat_label.text = "⚔ PV %d/%d  V%d  Score %d" % [int(round(GameState.combat_hp)), int(round(GameState.combat_hp_max)), GameState.combat_wave, GameState.combat_score]
+		else:
+			_combat_label.text = ""
 
 # Cache lunes/anneau par seed planète : _planet_label_text tourne CHAQUE frame où la montre est visible
 # (90×/s au casque) — sans cache, generate_moons() reconstruisait un tableau de lunes par frame.
@@ -470,3 +505,43 @@ func _refresh_time_buttons() -> void:
 func _on_weather() -> void:
 	WeatherSystem.set_force_mode((WeatherSystem.get_force_mode() + 1) % 4)
 	_refresh_time_buttons()
+
+# Lampe nocturne : bascule la lampe du joueur (univers sous-marin / nuit) via SurfaceView.get_player().
+func _on_lamp() -> void:
+	ui_confirm.emit()
+	var p = _player_ref()
+	if p != null and p.has_method("toggle_lamp"):
+		var on: bool = p.toggle_lamp()
+		if _lamp_button:
+			_lamp_button.text = "Lampe ON" if on else "Lampe OFF"
+
+# Blaster (mode combat opt-in) : équipe / dégaine l'arme du joueur via SurfaceView.get_player().
+func _on_weapon() -> void:
+	ui_confirm.emit()
+	var p = _player_ref()
+	if p != null and p.has_method("toggle_weapon"):
+		p.toggle_weapon()
+	_refresh_weapon_buttons()
+
+func _on_plasma() -> void:
+	ui_confirm.emit()
+	var p = _player_ref()
+	if p != null and p.has_method("toggle_plasma"):
+		p.toggle_plasma()
+	_refresh_weapon_buttons()
+
+# Texte des boutons d'arme selon l'arme active du joueur (✓ sur l'arme sortie).
+func _refresh_weapon_buttons() -> void:
+	var n := ""
+	var pp = _player_ref()
+	if pp != null and pp.has_method("active_weapon_name"):
+		n = pp.active_weapon_name()
+	if _weapon_button:
+		_weapon_button.text = "Revolver ✓" if n == "Blaster" else "Revolver"
+	if _plasma_button:
+		_plasma_button.text = "Plasma ✓" if n == "Plasma" else "Plasma"
+
+func _player_ref():
+	if _surface_view != null and _surface_view.has_method("get_player"):
+		return _surface_view.get_player()
+	return null

@@ -4,7 +4,7 @@ shader_type spatial;
 // spéculaire solaire SERRÉ (étincelles) + halo large — tous deux suivant sun_direction. Teinte
 // profondeur -> turquoise peu profonde. Pensé pour le tonemap AgX + glow (les étincelles « bloom »).
 // Passe transparente + depth_draw_opaque : SCREEN_TEXTURE contient la scène (terrain/ciel) à réfléchir.
-render_mode blend_mix, depth_draw_opaque, cull_back;
+render_mode blend_mix, depth_draw_opaque, cull_disabled;   // cull_disabled : dessous visible en nageant (vu d'en haut = identique, mêmes triangles)
 
 uniform vec4 water_color : source_color = vec4(0.04, 0.22, 0.38, 1.0);
 uniform vec3 sky_tint : source_color = vec3(0.5, 0.6, 0.8);

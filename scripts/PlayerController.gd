@@ -8,10 +8,12 @@ extends CharacterBody3D
 ## Inactif hors SURFACE (activé par ViewManager via enter_desktop/enter_xr).
 
 signal step(world_pos: Vector3)   # phase 22 : émis à chaque foulée (audio de pas, cadence = vitesse)
+signal impact(world_pos: Vector3, strength: float)   # atterrissage de PUISSANCE (chute rapide) : gerbe de débris + onde de choc
 
 const SPEED := 4.5
 const STRIDE := 1.7               # m parcourus entre deux foulées
 const JUMP_VELOCITY := 5.0
+const POWER_LAND_SPEED := 11.0   # m/s de chute (vers le bas) au-delà desquels l'atterrissage devient un IMPACT de puissance
 const MOUSE_SENS := 0.0025
 const PITCH_LIMIT := 1.4
 # XR
@@ -39,6 +41,14 @@ const FLY_FOV_ADD := 16.0       # ° de FOV ajoutés à pleine vitesse en armure
 const FLY_SPEED := 24.0         # m/s — vol Iron Man (rapide mais maîtrisable)
 const FLY_BOOST := 2.3          # multiplicateur de boost (Maj / gâchette)
 const FLY_ACCEL := 7.0          # réactivité : lerp de la vitesse vers la cible (inertie légère)
+# --- Nage sous-marine (univers sous-marin) : corps immergé => gravité OFF + flottabilité + mouvement 3D ---
+const SEA_Y := 0.0             # Y monde de la surface de mer (= PlanetGenerator.sea_level_height, DEFAULT_SEA_LEVEL=0)
+const SWIM_SPEED := 3.6        # m/s — nage de croisière (lente, contemplative)
+const SWIM_BOOST := 1.8        # multiplicateur de nage rapide (Maj / boost)
+const SWIM_ACCEL := 3.0        # réactivité aquatique (drag : on glisse jusqu'à l'arrêt en lâchant)
+const BUOYANCY := 1.2          # m/s² — flottabilité douce : on remonte tout seul, tête vers la surface
+const SWIM_ENTER_DEPTH := 1.4  # m d'eau au-dessus des pieds pour passer en nage (~hauteur de poitrine)
+const SWIM_EXIT_DEPTH := 1.0   # m : sous ce seuil + pieds au fond => on repose le pied et on remarche (bord/plage)
 
 var _gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity", 9.8)
 var _active := false
@@ -56,15 +66,42 @@ var _lean_neutral := Vector3.ZERO # XR : position tête (repère corps) au dépl
 var _paraglider: Paraglider
 var _base_fov := 75.0   # FOV caméra bureau au repos (élargi en vol pour la sensation de vitesse)
 var _flying := false    # armure Iron Man : vol libre sans gravité (exclusif avec le parapente)
+var _swimming := false  # nage sous-marine : corps immergé (poitrine) => gravité OFF + flottabilité (exclusif marche)
 var _fly_prev := false  # front montant du toggle vol (touche F / bouton B XR)
 var _repulsor: OmniLight3D   # lueur de repulseur (armure invisible) : éclaire le sol sous le joueur en vol
 var _speed_streaks   # lignes de vitesse Iron Man (SpeedStreaks.gd) — non typé : appel dynamique de update_streaks
 var _vignette        # vignette de confort VR (ComfortVignette.gd) — se resserre avec la vitesse (anti-nausée)
+var _lamp: SpotLight3D   # lampe nocturne : suit la caméra (bureau) / la main droite (XR) ; activable montre ou touche L
+var _lamp_on := false
+var _lamp_prev := false  # front montant de la touche L (bureau)
+# Combat OPT-IN (mode FPS VR) : armes équipables (revolver + plasma). Dégainé => zéro effet (contemplatif).
+var _revolver             # Blaster.gd configuré en revolver « blaster » (cyan)
+var _plasma               # Blaster.gd configuré en fusil à plasma (vert, zoom avancé)
+var _blaster              # arme ACTIVE (= _revolver ou _plasma ; null = dégainé)
+var _armed := false       # une arme est équipée
+var _fire_cd := 0.0       # cooldown de tir
+var _arm_prev := false    # front montant touche B (revolver)
+var _plasma_prev := false # front montant touche V (plasma)
+var _shield               # Shield.gd : bouclier d'énergie main gauche (déployé avec le blaster)
+const SHIELD_BLOCK_RADIUS := 0.5   # m : rayon d'interception d'un bolt par le bouclier
+const HP_MAX := 100.0
+var _hp := HP_MAX         # PV joueur (combat opt-in) ; restauré à plein au (ré)équipement
+var _hurt_t := 0.0        # minuterie de flash d'encaissement (s)
+var _invuln_t := 0.0      # brève invulnérabilité (équipement / réapparition)
+var _dead := false        # éliminé : locomotion gelée le temps de la réapparition
+var _respawn_t := 0.0     # compte à rebours de réapparition (s)
+var _combat_overlay       # CombatOverlay.gd : voile rouge tête-bloquée (flash/mort/PV bas), VR + bureau
+var _hit_indicator        # HitIndicator.gd : flèche directionnelle « d'où vient le tir » (VR + bureau)
+var _hit_dir := Vector3.ZERO   # direction monde du dernier tir encaissé (vers le tireur)
+var _hit_dir_t := 0.0     # minuterie d'affichage de la flèche directionnelle (s)
+var _heal_t := 0.0        # minuterie du pulse de soin vert (s)
 var _stuck_t := 0.0   # anti-blocage : temps passé à "vouloir marcher sans avancer" (enfoncé/coincé)
 # Retour haptique XR (no-op en bureau) — état de suivi des différents pulses.
 var _step_foot := 1      # alterne le tic de foulée gauche/droite
 var _was_air := false    # suivi air->sol pour le "thump" d'atterrissage (marche)
 var _air_vy := 0.0       # vitesse verticale mémorisée en l'air (intensité du thump)
+var _fall_vy := 0.0      # impact de puissance : vitesse de chute la plus forte depuis le décollage (la plus négative)
+var _impact_was_air := false   # suivi air->sol pour l'impact de puissance (indépendant du thump de marche)
 var _fly_buzz_t := 0.0   # throttle du rumble continu des repulseurs (vol Iron Man)
 var _therm_buzz_t := 0.0 # throttle du frisson haptique en ascendance (parapente)
 
@@ -114,6 +151,46 @@ func _ready() -> void:
 	# Vignette de confort VR (tunnel-vision anti-nausée pilotée par la vitesse).
 	_vignette = preload("res://scripts/ComfortVignette.gd").new()
 	add_child(_vignette)
+	# Surcouche combat (voile rouge tête-bloquée : encaissement / mort / PV bas) — VR + bureau.
+	_combat_overlay = preload("res://scripts/CombatOverlay.gd").new()
+	add_child(_combat_overlay)
+	# Indicateur directionnel « d'où vient le tir » (flèche tête-bloquée) — VR + bureau.
+	_hit_indicator = preload("res://scripts/HitIndicator.gd").new()
+	add_child(_hit_indicator)
+	# Lampe nocturne : spot orientable, éteint par défaut. Suit la caméra (bureau) ou la main droite (XR).
+	_lamp = SpotLight3D.new()
+	_lamp.light_color = Color(1.0, 0.96, 0.85)
+	_lamp.light_energy = 6.0
+	_lamp.spot_range = 34.0
+	_lamp.spot_angle = 33.0
+	_lamp.spot_angle_attenuation = 1.1
+	_lamp.shadow_enabled = false
+	_lamp.visible = false
+	add_child(_lamp)
+	# Armes (combat opt-in) : revolver + fusil à plasma, créés masqués sous le joueur ; l'arme active est
+	# parentée à la main à l'équipement (_equip). Le plasma surcharge la config (modèle, couleur, zoom avancé).
+	_revolver = preload("res://scripts/Blaster.gd").new()
+	_revolver.visible = false
+	add_child(_revolver)
+	_plasma = preload("res://scripts/Blaster.gd").new()
+	_plasma.weapon_name = "Plasma"
+	_plasma.model_path = "res://models/plasma_gun.glb"
+	_plasma.model_length = 0.42
+	_plasma.muzzle_up_frac = 0.05
+	_plasma.bolt_color = Color(0.45, 1.0, 0.55)
+	_plasma.charged_color = Color(0.7, 1.0, 0.4)
+	_plasma.fire_interval = 0.34
+	_plasma.fire_interval_ads = 0.7
+	_plasma.zoom_fov = 38.0          # zoom AVANCÉ (bureau)
+	_plasma.dmg = 2.0
+	_plasma.dmg_charged = 4.0
+	_plasma.visible = false
+	add_child(_plasma)
+	_blaster = null
+	# Bouclier d'énergie main gauche (déployé avec le blaster).
+	_shield = preload("res://scripts/Shield.gd").new()
+	_shield.visible = false
+	add_child(_shield)
 	set_physics_process(false)
 	set_process_unhandled_input(false)
 
@@ -135,6 +212,7 @@ func enter_desktop() -> void:
 	_active = true
 	_xr = false
 	_eyes.current = true
+	_attach_weapon_to(_shield, _eyes, Transform3D(Basis(), Vector3(-0.16, -0.12, -0.34)))    # viewmodel bouclier (gauche) — l'arme s'attache à l'équipement
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	set_physics_process(true)
 	set_process_unhandled_input(true)
@@ -149,6 +227,8 @@ func enter_xr(xr_origin: Node3D, xr_camera: Camera3D, left: XRController3D, righ
 	_right = right
 	_xr_origin.reparent(_xr_anchor, false)
 	_xr_origin.transform = Transform3D.IDENTITY
+	# Bouclier RIGIDEMENT solidaire de la main gauche (l'arme active s'attache à la main droite à l'équipement).
+	_attach_weapon_to(_shield, _left, Transform3D(Basis(), Vector3(0.0, 0.0, -0.08)))
 	set_physics_process(true)
 	set_process_unhandled_input(false)
 
@@ -158,11 +238,32 @@ func exit() -> void:
 	if _gliding:
 		_stow()
 	_flying = false
+	_swimming = false
+	_lamp_on = false
+	if _lamp:
+		_lamp.visible = false
+	_armed = false
+	_blaster = null
+	for g in [_revolver, _plasma]:
+		if g:
+			g.visible = false
+			_attach_weapon_to(g, self, Transform3D.IDENTITY)
+	if _shield:
+		_shield.visible = false
+		_attach_weapon_to(_shield, self, Transform3D.IDENTITY)
 	_fly_prev = false
 	_deploy_prev = false
 	_frozen = false   # ne pas laisser un gel zombie : un futur re-spawn qui ne repasse pas par build() figerait le joueur
 	if _vignette:
 		_vignette.clear()   # sinon la vignette resterait figée à l'écran hors-surface
+	if _combat_overlay:
+		_combat_overlay.clear()
+	_dead = false
+	_hp = HP_MAX
+	_hurt_t = 0.0
+	_respawn_t = 0.0
+	GameState.combat_active = false
+	GameState.combat_dead = false
 	_eyes.rotation.z = 0.0
 	_eyes.current = false
 	if not _xr:
@@ -172,6 +273,198 @@ func exit() -> void:
 
 func get_active_camera() -> Camera3D:
 	return _xr_camera if _xr else _eyes
+
+# Lampe nocturne : bascule on/off (appelée par la montre XR ou la touche L bureau). Retourne le nouvel état.
+func toggle_lamp() -> bool:
+	_lamp_on = not _lamp_on
+	if _lamp:
+		_lamp.visible = _lamp_on
+	_haptic(0.2, 0.05, 0.0, 0)
+	return _lamp_on
+
+# Combat opt-in : équipe / dégaine le blaster (appelé par la montre XR ou la touche B bureau). Retourne l'état.
+func toggle_weapon() -> bool:
+	_equip(null if _blaster == _revolver else _revolver)
+	return _armed
+
+# Équipe / dégaine le fusil à plasma (montre XR / touche V bureau).
+func toggle_plasma() -> bool:
+	_equip(null if _blaster == _plasma else _plasma)
+	return _armed
+
+# Sort l'arme `w` (ou null = dégainer) : range les deux armes, attache la nouvelle à la main, montre le bouclier.
+func _equip(w) -> void:
+	for g in [_revolver, _plasma]:
+		if g:
+			g.visible = false
+			_attach_weapon_to(g, self, Transform3D.IDENTITY)
+	if w == null:
+		_blaster = null
+		_armed = false
+	else:
+		_blaster = w
+		_armed = true
+		w.visible = true
+		_attach_weapon_to(w, _weapon_target(), _weapon_offset())
+	# Combat opt-in : (ré)équiper restaure les PV pleins (+ brève grâce) ; dégainer remet l'état à zéro.
+	_hp = HP_MAX
+	_dead = false
+	_hurt_t = 0.0
+	_respawn_t = 0.0
+	_invuln_t = 1.5 if _armed else 0.0
+	GameState.combat_active = _armed
+	GameState.combat_hp = _hp
+	GameState.combat_hp_max = HP_MAX
+	GameState.combat_dead = false
+	_hit_dir_t = 0.0
+	_heal_t = 0.0
+	if not _armed:
+		if _combat_overlay:
+			_combat_overlay.clear()
+		if _hit_indicator:
+			_hit_indicator.clear()
+	if _shield:
+		_shield.visible = _armed
+	_haptic(0.3, 0.07, 0.0, 1)
+
+func _weapon_target() -> Node3D:
+	return _right if (_xr and _right != null) else _eyes
+
+func _weapon_offset() -> Transform3D:
+	return Transform3D.IDENTITY if _xr else Transform3D(Basis(), Vector3(0.12, -0.10, -0.20))
+
+# Combat : le joueur est-il armé (une arme équipée) ? Lu par le WaveManager (ennemis opt-in).
+func is_armed() -> bool:
+	return _armed
+
+# Nom de l'arme active ("Blaster" / "Plasma" / "" si dégainé) — pour l'UI montre.
+func active_weapon_name() -> String:
+	return _blaster.weapon_name if _blaster != null else ""
+
+# Touché par un tir ennemi : applique les dégâts, flash + flèche directionnelle + haptique, mort si PV ≤ 0.
+# from_dir = direction monde d'où venait le tir (vers le tireur), pour l'indicateur directionnel.
+func enemy_hit(amount: float = 9.0, from_dir: Vector3 = Vector3.ZERO) -> void:
+	if _dead or _invuln_t > 0.0:
+		return
+	_hp = maxf(_hp - amount, 0.0)
+	_hurt_t = 0.5
+	if from_dir.length() > 0.001:
+		_hit_dir = from_dir.normalized()
+		_hit_dir_t = 1.3
+	GameState.combat_hp = _hp
+	_haptic(0.8, 0.18, 0.0, 0)
+	BHaptics.landing(0.7)
+	AudioEngine.play_impact(get_active_camera().global_position, 0.4)
+	if _hp <= 0.0:
+		_die_combat()
+
+# Soin (vague nettoyée) : restaure des PV + pulse vert. Sans effet si mort ou dégainé.
+func heal(amount: float) -> void:
+	if _dead or not _armed:
+		return
+	_hp = minf(_hp + amount, HP_MAX)
+	GameState.combat_hp = _hp
+	_heal_t = 0.6
+	_haptic(0.25, 0.1, 0.0, 0)
+
+# Confirmation de destruction d'un drone (appelée par WaveManager) : tic brillant + pulse manette droite.
+func on_kill() -> void:
+	AudioEngine.play_hit_confirm(true)
+	_haptic(0.55, 0.09, 0.0, 1)
+
+# Le bouclier intercepte-t-il un projectile en `world_pos` ? (déployé, dans le rayon, côté face avant.)
+# Si OUI : feedback (haptique gauche + clink + étincelle) puis retourne true => le bolt meurt sans dégâts.
+func shield_intercept(world_pos: Vector3) -> bool:
+	if not _armed or _shield == null or not _shield.visible:
+		return false
+	var sx: Transform3D = _shield.global_transform
+	var d := world_pos - sx.origin
+	if d.length() > SHIELD_BLOCK_RADIUS:
+		return false
+	var fwd := -sx.basis.z.normalized()   # face bombée du bouclier (pointe vers l'ennemi)
+	if d.dot(fwd) < -0.05:                 # bolt déjà passé derrière le bouclier => non bloqué
+		return false
+	_haptic(0.7, 0.13, 0.0, -1)            # pulse main gauche (bras du bouclier)
+	BHaptics.landing(0.45)
+	AudioEngine.play_impact(world_pos, 0.3)
+	_spawn_block_spark(world_pos)
+	if _shield.has_method("flash"):
+		_shield.flash()                    # le bouclier s'illumine brièvement
+	return true
+
+# Étincelle cyan brève au point de blocage (auto-libérée).
+func _spawn_block_spark(world_pos: Vector3) -> void:
+	var fl := OmniLight3D.new()
+	fl.light_color = Color(0.5, 0.9, 1.0)
+	fl.omni_range = 3.5
+	fl.light_energy = 6.0
+	fl.shadow_enabled = false
+	get_tree().current_scene.add_child(fl)
+	fl.global_position = world_pos
+	get_tree().create_timer(0.12).timeout.connect(fl.queue_free)
+
+func _die_combat() -> void:
+	if _dead:
+		return
+	_dead = true
+	_respawn_t = 2.4
+	GameState.combat_result_wave = GameState.combat_wave    # fige le résultat pour l'écran de fin de run
+	GameState.combat_result_score = GameState.combat_score
+	GameState.combat_hp = 0.0
+	GameState.combat_dead = true
+	_haptic(1.0, 0.45, 0.0, 0)
+	BHaptics.landing(1.0)
+	AudioEngine.play_impact(get_active_camera().global_position, 1.0)
+
+func _respawn() -> void:
+	_dead = false
+	_hp = HP_MAX
+	_invuln_t = 2.0   # brève grâce après réapparition
+	velocity = Vector3.ZERO
+	GameState.combat_hp = _hp
+	GameState.combat_dead = false
+	_haptic(0.4, 0.2, 0.0, 0)
+
+# Minuteries combat + miroir vers GameState + pilotage de la surcouche. Retourne true si le joueur est mort
+# (le _physics_process gèle alors la locomotion le temps de la réapparition). Appelé chaque frame physique.
+func _update_combat(delta: float) -> bool:
+	if _hurt_t > 0.0:
+		_hurt_t = maxf(_hurt_t - delta, 0.0)
+	if _invuln_t > 0.0:
+		_invuln_t = maxf(_invuln_t - delta, 0.0)
+	if _heal_t > 0.0:
+		_heal_t = maxf(_heal_t - delta, 0.0)
+	if _hit_dir_t > 0.0:
+		_hit_dir_t = maxf(_hit_dir_t - delta, 0.0)
+	GameState.combat_active = _armed
+	GameState.combat_hp = _hp
+	GameState.combat_hp_max = HP_MAX
+	GameState.combat_dead = _dead
+	if _dead:
+		_respawn_t -= delta
+		if _respawn_t <= 0.0:
+			_respawn()
+	var cam := get_active_camera()
+	if _combat_overlay:
+		var hurt01 := _hurt_t / 0.5
+		var dead01 := 1.0 if _dead else 0.0
+		var ratio := (_hp / HP_MAX) if HP_MAX > 0.0 else 1.0
+		var low01 := clampf((0.4 - ratio) / 0.4, 0.0, 1.0) if (_armed and not _dead) else 0.0
+		var heal01 := _heal_t / 0.6
+		_combat_overlay.place(cam, hurt01, dead01, low01, heal01, delta)
+	if _hit_indicator:
+		var dir_t := (_hit_dir_t / 1.3) if (_armed and not _dead) else 0.0
+		_hit_indicator.place(cam, _hit_dir, dir_t)
+	return _dead
+
+# Parente l'arme/bouclier à un nœud (manette/caméra) avec un offset local => rigidement solidaire (pas de
+# copie de transform par frame => zéro décalage physique↔rendu en VR). Appelé à l'activation / la sortie.
+func _attach_weapon_to(node: Node, target: Node, local: Transform3D) -> void:
+	if node == null or target == null:
+		return
+	if node.get_parent() != target:
+		node.reparent(target, false)
+	(node as Node3D).transform = local
 
 # --- Retour haptique XR (no-op en bureau) ---
 # Pulse sur les manettes via l'action OpenXR "haptic". amp 0..1, durée s, freq Hz (0 = défaut runtime).
@@ -202,8 +495,14 @@ func _physics_process(delta: float) -> void:
 			_vignette.place(get_active_camera(), 0.0, delta)   # résorbe la vignette (sinon figée derrière le menu si ouvert en vol)
 		return
 	_update_equipment()
+	if _update_combat(delta):   # mort : locomotion gelée le temps de la réapparition
+		velocity = Vector3.ZERO
+		return
+	_update_swim_state()   # bascule nage<->marche selon la profondeur d'eau (hystérésis)
 	if _flying:
 		_fly(delta)
+	elif _swimming:
+		_swim(delta)
 	elif _gliding:
 		_glide(delta)
 	elif _xr:
@@ -212,13 +511,22 @@ func _physics_process(delta: float) -> void:
 		_physics_desktop(delta)
 	_update_steps(delta)
 	_update_paraglider(delta)
-	if not _flying and not _gliding:
+	_update_impact(delta)   # atterrissage de puissance (chute rapide) — tous modes sauf nage
+	_update_weapon(delta)   # blaster (combat opt-in) : suivi main + tir
+	if not _flying and not _gliding and not _swimming:
 		_anti_stuck(delta)
 		_update_landing()
 	# Vignette de confort : se resserre ∝ vitesse réelle (vol/glisse rapides = vection max => anti-nausée).
 	if _vignette:
 		var amt := (Settings.vignette_strength * smoothstep(4.0, 18.0, get_real_velocity().length())) if Settings.vignette_on else 0.0
 		_vignette.place(get_active_camera(), amt, delta)
+	# Lampe nocturne : suit la caméra (bureau) ou la main droite (XR), pointe vers l'avant (-Z).
+	if _lamp_on and _lamp:
+		var src: Node3D = _eyes
+		if _xr:
+			src = _right if (_right != null and _right.get_is_active()) else _xr_camera
+		if src:
+			_lamp.global_transform = src.global_transform
 
 # Anti-blocage universel (marche) : si on POUSSE pour avancer mais qu'on n'avance pas (capsule enfoncée
 # dans le relief après un atterrissage rapide), on s'extrait vers la surface du sol après ~1 s. Ne fait
@@ -261,6 +569,61 @@ func _update_landing() -> void:
 			BHaptics.landing(impact)   # gilet X40 : secousse d'atterrissage (pondérée bas du torse)
 	_was_air = not on_floor
 
+# Atterrissage de PUISSANCE (Iron Man / Hulk) : suit la vitesse de chute en l'air ; à la reprise de contact
+# au sol au-delà de POWER_LAND_SPEED, émet `impact` (gerbe de débris + onde de choc, jouée par SurfaceView)
+# + un gros pulse haptique. Marche pour la chute libre, le piqué en armure, ou après avoir replié la voile en
+# altitude. Inactif sous l'eau (on n'atterrit pas en nageant — c'est l'éclaboussure qui gère).
+func _update_impact(_delta: float) -> void:
+	if _swimming:
+		_fall_vy = 0.0
+		_impact_was_air = false
+		return
+	if not is_on_floor():
+		_fall_vy = minf(_fall_vy, get_real_velocity().y)   # vitesse de chute réelle la plus forte (la plus négative)
+		_impact_was_air = true
+		return
+	if _impact_was_air:
+		var spd := -_fall_vy   # vitesse de chute à l'impact (m/s, >0)
+		if spd > POWER_LAND_SPEED:
+			var strength := clampf((spd - POWER_LAND_SPEED) / 20.0, 0.0, 1.0)
+			impact.emit(global_position, 0.45 + 0.55 * strength)
+			_haptic(0.7 + 0.3 * strength, 0.2, 0.0, 0)   # gros choc deux mains
+			BHaptics.landing(1.0)                         # gilet X40 : impact plein
+			_flying = false   # impact de puissance => on POSE (pose Hulk), pas de vol stationnaire collé au sol
+	_impact_was_air = false
+	_fall_vy = 0.0
+
+# Blaster (combat opt-in) : suit la main droite (XR) / viewmodel (bureau) ; tir gâchette droite (XR) / clic
+# gauche (bureau), cadence limitée, recul haptique + son. Dégainé => return immédiat (aucun effet).
+func _update_weapon(delta: float) -> void:
+	if not _armed or _blaster == null:
+		return
+	# Position de l'arme/bouclier : assurée par PARENTAGE à la manette/caméra (enter_xr/enter_desktop) =>
+	# rigidement solidaires, AUCUN décalage physique↔rendu en VR (le bolt part toujours du bout du canon).
+	# Visée / tir SECONDAIRE : grip droit (XR) / clic droit (bureau). En visée => zoom léger (bureau) + tir
+	# de PRÉCISION « chargé » (bolt violet plus gros, cadence plus lente, recul renforcé).
+	var aiming := false
+	if _xr:
+		aiming = _right != null and _right.get_is_active() and _right.get_float("grip") > 0.6
+	else:
+		aiming = Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT)
+	if not _xr and aiming:
+		_eyes.fov = lerpf(_eyes.fov, _base_fov - _blaster.zoom_fov, clampf(10.0 * delta, 0.0, 1.0))   # zoom ADS par-arme (bureau)
+	_fire_cd = maxf(_fire_cd - delta, 0.0)
+	var firing := false
+	if _xr:
+		firing = _right != null and _right.get_is_active() and _right.get_float("trigger") > 0.6
+	else:
+		firing = Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT)
+	if firing and _fire_cd <= 0.0:
+		_fire_cd = _blaster.fire_interval_ads if aiming else _blaster.fire_interval
+		var shot = _blaster.fire([get_rid()], aiming)   # hitscan (retour { hit,pos,collider,charged })
+		if shot.hit and shot.collider != null and shot.collider.has_method("take_damage"):
+			shot.collider.take_damage(_blaster.dmg_charged if aiming else _blaster.dmg, shot.pos)   # drone touché
+			AudioEngine.play_hit_confirm(false)   # tic de confirmation au toucher
+		_haptic(0.6 if aiming else 0.45, 0.08 if aiming else 0.06, 0.0, 1)
+		AudioEngine.play_blaster(_blaster.muzzle_world())
+
 # Équipements : touche F / bouton B (XR) = armure Iron Man (vol libre invisible) ; touche E / bouton A
 # (XR) = parapente. EXCLUSIFS : enfiler l'armure replie le parapente ; le parapente est inactif en vol.
 func _update_equipment() -> void:
@@ -272,13 +635,29 @@ func _update_equipment() -> void:
 	if fly_pressed and not _fly_prev:
 		_toggle_fly()
 	_fly_prev = fly_pressed
-	if not _flying:
-		_update_deploy()   # parapente (E) — désactivé pendant le vol Iron Man
+	# Lampe nocturne (bureau) : touche L (front montant). En XR, bascule depuis la montre (bouton Lampe).
+	if not _xr:
+		var lamp_pressed := Input.is_physical_key_pressed(KEY_L)
+		if lamp_pressed and not _lamp_prev:
+			toggle_lamp()
+		_lamp_prev = lamp_pressed
+		var arm_pressed := Input.is_physical_key_pressed(KEY_B)   # revolver (combat opt-in)
+		if arm_pressed and not _arm_prev:
+			toggle_weapon()
+		_arm_prev = arm_pressed
+		var plasma_pressed := Input.is_physical_key_pressed(KEY_V)   # fusil à plasma
+		if plasma_pressed and not _plasma_prev:
+			toggle_plasma()
+		_plasma_prev = plasma_pressed
+	if not _flying and not _swimming:
+		_update_deploy()   # parapente (E) — désactivé pendant le vol Iron Man ET la nage (pas de voile sous l'eau)
 
 # Phase 22 : accumule la distance horizontale parcourue au sol ; émet `step` chaque STRIDE mètres
 # (=> cadence proportionnelle à la vitesse, naturelle). Émis aux pieds (global_position, y aux pieds).
 var _stride_accum := 0.0
 func _update_steps(delta: float) -> void:
+	if _swimming:
+		return   # pas de foulées sous l'eau (on nage)
 	if not is_on_floor():
 		return
 	var hv := Vector2(velocity.x, velocity.z).length()
@@ -347,9 +726,13 @@ func _physics_xr(delta: float) -> void:
 
 	move_and_slide()
 
-	# 4) Rotation confort (stick droit horizontal) : par CRAN (snap, défaut) ou CONTINUE (smooth), au choix
-	#    dans les Options. Le snap-turn est le plus confortable au casque ; la rotation continue convient
-	#    aux joueurs aguerris (moins de saccades, mais plus de vection).
+	# 4) Rotation confort (stick droit horizontal) : snap (cran) ou smooth, selon les Options (cf. _apply_comfort_turn).
+	_apply_comfort_turn(delta)
+
+# Rotation confort XR (stick droit horizontal) : par CRAN (snap, défaut) ou CONTINUE (smooth), au choix dans
+# les Options. Partagée par la marche ET la nage (même ressenti de virage sous l'eau). Le snap-turn est le
+# plus confortable au casque ; la rotation continue convient aux joueurs aguerris (moins saccadé, + de vection).
+func _apply_comfort_turn(delta: float) -> void:
 	if _right and _right.get_is_active():
 		var turn := _right.get_vector2("primary").x
 		if Settings.turn_mode == 1:        # rotation CONTINUE (smooth)
@@ -362,6 +745,87 @@ func _physics_xr(delta: float) -> void:
 				_haptic(0.22, 0.04, 0.0, 0)   # tic de confirmation du snap-turn (confort)
 			elif absf(turn) < 0.3:
 				_snap_armed = true
+
+# --- Nage sous-marine (univers sous-marin) ---
+
+# Bascule nage<->marche selon la profondeur d'eau au-dessus des pieds (surface = SEA_Y=0). Hystérésis
+# (entrée ~poitrine 1.4 m, sortie 1.0 m au fond) => pas de clignotement au bord. L'armure Iron Man prime
+# (on vole même sous l'eau). Entrer en nage replie le parapente (splash) et freine la vitesse d'entrée.
+func _update_swim_state() -> void:
+	if _flying:
+		if _swimming:
+			_swimming = false
+		return
+	var depth := SEA_Y - global_position.y   # profondeur d'eau au-dessus des pieds (>0 = pieds immergés)
+	if _swimming:
+		if is_on_floor() and depth < SWIM_EXIT_DEPTH:
+			_set_swimming(false)
+	elif depth > SWIM_ENTER_DEPTH:
+		_set_swimming(true)
+
+func _set_swimming(v: bool) -> void:
+	if v == _swimming:
+		return
+	_swimming = v
+	if v:
+		if _gliding:
+			_stow()           # on ne plane pas sous l'eau : repli (splash)
+		velocity *= 0.3       # résistance de l'eau : la vitesse d'entrée (chute/saut) est freinée net
+		_haptic(0.5, 0.12, 0.0, 0)   # éclaboussure d'entrée
+		BHaptics.soft_tap(40.0)
+	else:
+		_haptic(0.25, 0.07, 0.0, 0)  # on repose le pied (sortie de l'eau)
+
+# Nage : déplacement 3D libre dans la direction du regard + flottabilité douce (remonte tout seul) + drag
+# aquatique (on glisse jusqu'à l'arrêt en lâchant). BUREAU : WASD relatif caméra (viser haut = monter) +
+# Espace (haut) / C (bas) / Maj (boost). XR : stick gauche (3D relatif tête) + stick droit Y (vertical) + turn.
+func _swim(delta: float) -> void:
+	# Roomscale XR : le corps suit le casque en XZ (comme la marche) => leaning/roomscale cohérent sous l'eau.
+	if _xr and _xr_camera:
+		var off := Vector3(_xr_camera.global_position.x - global_position.x, 0.0, _xr_camera.global_position.z - global_position.z)
+		global_position += off
+		_xr_origin.global_position -= off
+	var wish := Vector3.ZERO
+	var boost := 1.0
+	if _xr:
+		if _left and _left.get_is_active():
+			var s := _left.get_vector2("primary")
+			if s.length() > STICK_DEADZONE:
+				var hb := _xr_camera.global_transform.basis
+				wish += -hb.z * s.y + hb.x * s.x   # 3D relatif tête : on nage là où on regarde
+		if _right and _right.get_is_active():
+			var ry := _right.get_vector2("primary").y
+			if absf(ry) > STICK_DEADZONE:
+				wish += Vector3.UP * ry            # monter / descendre
+	else:
+		var cb := _eyes.global_transform.basis
+		if Input.is_physical_key_pressed(KEY_W):
+			wish += -cb.z
+		if Input.is_physical_key_pressed(KEY_S):
+			wish += cb.z
+		if Input.is_physical_key_pressed(KEY_D):
+			wish += cb.x
+		if Input.is_physical_key_pressed(KEY_A):
+			wish += -cb.x
+		if Input.is_physical_key_pressed(KEY_SPACE):
+			wish += Vector3.UP
+		if Input.is_physical_key_pressed(KEY_C):
+			wish += Vector3.DOWN
+		if Input.is_physical_key_pressed(KEY_SHIFT):
+			boost = SWIM_BOOST
+	var target := Vector3.ZERO
+	if wish.length() > 0.05:
+		target = wish.normalized() * SWIM_SPEED * boost
+	# Drag aquatique : la vitesse tend (lentement) vers la cible => sensation d'eau, glisse à l'arrêt.
+	velocity = velocity.lerp(target, clampf(SWIM_ACCEL * delta, 0.0, 1.0))
+	# Flottabilité : seulement AU REPOS (aucune commande) + tête sous la surface => légère poussée vers le
+	# haut (on remonte doucement vers la surface en lâchant tout). Nager dans n'importe quelle direction tient
+	# la profondeur (on ne lutte pas contre la flottabilité). Neutre dès que la tête perce la surface.
+	if wish.length() < 0.05 and global_position.y + 1.4 < SEA_Y:
+		velocity.y += BUOYANCY * delta
+	move_and_slide()
+	if _xr:
+		_apply_comfort_turn(delta)
 
 # Fait pivoter le corps autour de la position du casque (la tête reste fixe).
 func _rotate_around_camera(angle: float) -> void:

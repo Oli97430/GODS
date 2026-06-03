@@ -24,7 +24,14 @@ var _sky3d: Sky3D   # addon Sky3D : dôme de ciel + nuages volumétriques (ciel 
 var _starfield: Starfield
 var _fireflies   # lucioles/spores nocturnes (Fireflies.gd) — vie ambiante autour du joueur la nuit
 var _biolum := 0.0   # force de bioluminescence de la planète courante (0 = pas de flore luminescente)
-var _flock   # nuée d'oiseaux (Flock.gd) — boids dans le ciel le jour
+var _flocks: Array = []        # nuées d'oiseaux VARIÉES (Flock.gd) — plusieurs espèces, le jour
+var _bird_combat := 1.0        # gate lissé : 0 = nuées masquées (mode combat opt-in), 1 = présentes
+var _fishschools: Array = []   # bancs de poissons VARIÉS (FishSchool.gd) — plusieurs espèces, sous l'eau
+var _kelp         # champ d'algues/kelp (KelpField.gd) — lames enracinées au fond marin, ondulent sous l'eau
+var _shafts       # rais de lumière sous-marins (LightShafts.gd) — god rays, le jour, près de la surface
+var _bubbles      # bulles sous-marines (Bubbles.gd) — montent autour du joueur
+var _impact_burst # gerbe de débris d'atterrissage de puissance (ImpactBurst.gd) — déclenchée par PlayerController.impact
+var _waves         # WaveManager.gd : vagues de drones ennemis (combat opt-in, actif si le joueur est armé)
 var _rain: RainEffect
 var _lightning: LightningEffect
 var _surface_moons: SurfaceMoons   # phase 14 : lunes dans le ciel
@@ -68,9 +75,45 @@ func _ready() -> void:
 	# Lucioles/spores nocturnes (vie ambiante) : nuée additive qui dérive autour du joueur la nuit.
 	_fireflies = preload("res://scripts/Fireflies.gd").new()
 	add_child(_fireflies)
-	# Nuée d'oiseaux (vie ambiante) : boids dans le ciel, le jour.
-	_flock = preload("res://scripts/Flock.gd").new()
-	add_child(_flock)
+	# Nuées d'oiseaux VARIÉES (vie ambiante) : 3 espèces (taille / couleur / altitude / vitesse / nombre).
+	var FLOCKS := [
+		{"count": 48, "radius": 42.0, "alt_lo": 14.0, "alt_hi": 30.0, "speed": 8.5, "bird_scale": 0.75, "body_color": Vector3(0.05, 0.06, 0.08), "flap_speed": 9.5},  # étourneaux : petits, hauts, rapides
+		{"count": 28, "radius": 34.0, "alt_lo": 9.0,  "alt_hi": 20.0, "speed": 6.5, "bird_scale": 1.15, "body_color": Vector3(0.12, 0.09, 0.07), "flap_speed": 6.0},  # passereaux bruns, moyens
+		{"count": 9,  "radius": 30.0, "alt_lo": 10.0, "alt_hi": 18.0, "speed": 5.0, "bird_scale": 2.3,  "body_color": Vector3(0.20, 0.20, 0.22), "flap_speed": 2.6},  # grands planeurs gris, lents
+	]
+	for cfg in FLOCKS:
+		var fl = preload("res://scripts/Flock.gd").new()
+		fl.count = cfg.count; fl.radius = cfg.radius; fl.alt_lo = cfg.alt_lo; fl.alt_hi = cfg.alt_hi
+		fl.speed = cfg.speed; fl.bird_scale = cfg.bird_scale; fl.body_color = cfg.body_color; fl.flap_speed = cfg.flap_speed
+		add_child(fl)
+		_flocks.append(fl)
+	# Bancs de poissons VARIÉS (vie sous-marine) : 3 espèces.
+	var SCHOOLS := [
+		{"count": 42, "radius": 20.0, "y_low": -3.5, "y_high": 7.0, "speed": 3.0, "fish_scale": 0.9, "body_color": Vector3(0.55, 0.62, 0.72), "wiggle_speed": 7.0},  # petits argentés, nombreux
+		{"count": 24, "radius": 24.0, "y_low": -5.0, "y_high": 5.0, "speed": 2.4, "fish_scale": 1.7, "body_color": Vector3(0.30, 0.46, 0.42), "wiggle_speed": 4.5},  # moyens vert-bleu, plus bas
+		{"count": 16, "radius": 16.0, "y_low": -2.0, "y_high": 8.0, "speed": 3.8, "fish_scale": 0.6, "body_color": Vector3(0.85, 0.70, 0.30), "wiggle_speed": 9.0},  # petits jaunes vifs
+	]
+	for scfg in SCHOOLS:
+		var fs = preload("res://scripts/FishSchool.gd").new()
+		fs.count = scfg.count; fs.radius = scfg.radius; fs.y_low = scfg.y_low; fs.y_high = scfg.y_high
+		fs.speed = scfg.speed; fs.fish_scale = scfg.fish_scale; fs.body_color = scfg.body_color; fs.wiggle_speed = scfg.wiggle_speed
+		add_child(fs)
+		_fishschools.append(fs)
+	_kelp = preload("res://scripts/KelpField.gd").new()
+	add_child(_kelp)
+	_shafts = preload("res://scripts/LightShafts.gd").new()
+	add_child(_shafts)
+	_bubbles = preload("res://scripts/Bubbles.gd").new()
+	add_child(_bubbles)
+	# Atterrissage de puissance (Iron Man / Hulk) : gerbe de débris + onde de choc à l'impact d'une chute rapide.
+	_impact_burst = preload("res://scripts/ImpactBurst.gd").new()
+	add_child(_impact_burst)
+	if _player and not _player.impact.is_connected(_on_player_impact):
+		_player.impact.connect(_on_player_impact)
+	# Vagues d'ennemis (combat opt-in) : actives seulement quand le joueur a dégainé le blaster.
+	_waves = preload("res://scripts/WaveManager.gd").new()
+	add_child(_waves)
+	_waves.setup(_player)
 
 # Met en place le terrain streamé + ciel + brouillard pour une planète et un point
 # d'atterrissage donnés, place le joueur au spawn et le gèle jusqu'à sol prêt.
@@ -213,6 +256,12 @@ func _update_ambient_haptics(delta: float) -> void:
 func get_player() -> PlayerController:
 	return _player
 
+# Atterrissage de puissance : joue la gerbe de débris + onde de choc à la position d'impact (signal joueur).
+func _on_player_impact(world_pos: Vector3, strength: float) -> void:
+	if _impact_burst:
+		_impact_burst.play(world_pos, strength)
+	AudioEngine.play_impact(world_pos, strength)   # « boom » grave d'impact (polish)
+
 # Gel anti-chute du joueur (débarquement phase 18) : on GÈLE le pilote au spawn jusqu'à ce que le
 # chunk + SA COLLISION sous lui soient prêts (sinon il traverse le sol). Levé par _process via
 # is_ground_ready (même mécanisme que le spawn du build marchant phase 6/7).
@@ -256,6 +305,7 @@ func shutdown_streaming() -> void:
 # Libère le joueur dès que le chunk (avec collision) sous lui est prêt (anti-chute).
 func _process(delta: float) -> void:
 	if GameState.current_scale != GameState.Scale.SURFACE:
+		AudioEngine.set_underwater(0.0)   # sécurité : jamais d'étouffement sous-marin hors surface
 		return   # SurfaceView masquée hors-surface (visible=false) mais _process tourne : on coupe tout le par-frame
 	# Eau inland (phase 23) : vagues animées (temps monde) + spéculaire suivant le soleil (jour/nuit).
 	if _inland_water_mat:
@@ -288,11 +338,38 @@ func _process(delta: float) -> void:
 				_player.spawn_at(Vector3(p.x, _chunks.ground_height_at(p) + 1.0, p.z))
 			_player.set_frozen(false)
 			_waiting_ground = false
-	# Vie nocturne : facteur nuit PARTAGÉ (lucioles + bioluminescence flore), même seuil que SkyManager.
+	# Immersion (univers sous-marin) calculée d'ABORD : la TÊTE (caméra active, casque OU FPS) sous le niveau
+	# de mer (Y0). Sert à l'ambiance + la vie sous-marine ET à MASQUER la vie AÉRIENNE sous l'eau (oiseaux/
+	# lucioles). La surface de l'eau est à Y monde = 0 (sea_level_height = DEFAULT_SEA_LEVEL=0 × vertical_scale).
+	var cam := get_viewport().get_camera_3d()
+	var head_y := cam.global_position.y if cam else 100.0
+	var submerged := smoothstep(0.15, -0.5, head_y)
+	var depth01 := clampf(-head_y / 26.0, 0.0, 1.0)   # 0 surface -> 1 profond (~26 m sous la mer)
+	var air := 1.0 - smoothstep(0.05, 0.3, submerged)   # 1 hors de l'eau, 0 dès que la tête est immergée
+
+	# Vie nocturne AÉRIENNE (lucioles + oiseaux) : visible seulement HORS de l'eau (× air => disparaît sous
+	# l'eau). La flore bioluminescente (sol) n'est jamais sous l'eau => non concernée. night = seuil SkyManager.
 	var night := 1.0 - smoothstep(-0.05, 0.18, sun_altitude())
 	if _fireflies:
-		_fireflies.update(_player.global_position, night, delta)
-	RenderingServer.global_shader_parameter_set("biolum_glow", _biolum * night)   # la flore luminescente émet la nuit
-	if _flock:
-		_flock.update(_player.global_position, 1.0 - night, delta)   # oiseaux le JOUR (complète les lucioles de nuit)
+		_fireflies.update(_player.global_position, night * air, delta)
+	RenderingServer.global_shader_parameter_set("biolum_glow", _biolum * night)
+	# Combat opt-in : on masque les nuées d'oiseaux tant qu'une arme est sortie (lissé => pas de pop sec).
+	var bird_target := 0.0 if GameState.combat_active else 1.0
+	_bird_combat = move_toward(_bird_combat, bird_target, delta * 3.0)
+	for fl in _flocks:
+		fl.update(_player.global_position, (1.0 - night) * air * _bird_combat, delta)
+
+	# Univers sous-marin : ambiance (CP1a/CP3 : SkyManager) + vie (CP2 : poissons/kelp) + polish (CP3 : rais/bulles).
+	if _sky:
+		_sky.set_submerged(submerged, depth01)
+	for fs in _fishschools:
+		fs.update(_player.global_position, submerged, delta)
+	if _kelp:
+		_kelp.update(_player.global_position, submerged, _chunks)
+	if _shafts:
+		var cam_pos := cam.global_position if cam else _player.global_position
+		_shafts.update(_player.global_position, cam_pos, 1.0 - night, submerged, depth01, delta)
+	if _bubbles:
+		_bubbles.update(_player.global_position, submerged, delta)
+	AudioEngine.set_underwater(submerged)   # son étouffé sous l'eau (passe-bas Master, bypass hors de l'eau)
 	_update_ambient_haptics(delta)

@@ -446,6 +446,13 @@ func ground_height_at(world_pos: Vector3) -> float:
 	var dir := _dir_at(world_pos)
 	return maxf(_fauna_pg.sample_elevation(dir), PlanetGenerator.DEFAULT_SEA_LEVEL) * vertical_scale
 
+# Hauteur Y RÉELLE du terrain (NON bornée au niveau de mer, contrairement à ground_height_at qui clampe à
+# la mer) — pour enraciner le kelp sur le fond marin (sous le niveau de mer). Lecture seule, déterministe.
+func seafloor_height_at(world_pos: Vector3) -> float:
+	if _fauna_pg == null:
+		return world_pos.y
+	return _fauna_pg.sample_elevation(_dir_at(world_pos)) * vertical_scale
+
 func active_count() -> int:
 	return _active.size()
 

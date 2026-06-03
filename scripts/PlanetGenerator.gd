@@ -42,6 +42,7 @@ const HIGHLAND_AMP := 0.20         # hautes terres : surélève les régions con
 const MOUNTAIN_AMP := 0.10         # hauteur des crêtes (ridged) — montagnes basses, arrondies, flancs très doux
 const DETAIL_AMP := 0.007          # rugosité haute fréquence du sol (réduite : marche très douce, peu de bosses)
 const ELEV_MAX := 0.85             # plafond d'élévation (1 + ELEV_MAX*AMPLITUDE < CLOUD_SCALE 1.12)
+const OCEAN_DEEPEN := 1.6          # univers sous-marin : multiplie la profondeur du fond marin (base<0) => océans plus profonds (littoral & terre inchangés)
 
 # --- Cratères d'impact + volcans (procéduraux, déterministes ; visibles orbite + sol) ---
 const CRATER_REGION_FREQ := 1.2    # taille des RÉGIONS cratérisées (zones criblées vs lisses)
@@ -219,6 +220,10 @@ func sample_elevation(unit_dir: Vector3) -> float:
 	var base := _elev.get_noise_3dv(unit_dir)              # [-1,1] FBM continental (domain-warped)
 	base = clampf(base * CONTINENT_CONTRAST, -1.0, 1.0)    # côtes nettes, océans profonds
 	var e := base
+	# Univers sous-marin : océans PLUS PROFONDS (fond marin abaissé) — n'affecte QUE l'eau (base<0) ;
+	# le littoral (base=0) et le relief terrestre (base>0) restent strictement inchangés.
+	if base < 0.0:
+		e = base * OCEAN_DEEPEN
 	if base > 0.0:                                        # terre
 		# Hautes terres : surélèvement TARDIF (large bande de plaines basses & plates avant que ça monte)
 		# => beaucoup de zones planes, vistas douces, marche facile.
@@ -245,7 +250,8 @@ func sample_elevation(unit_dir: Vector3) -> float:
 			prox = 1.0
 		if prox > 0.001:
 			var wl: float = _flow_map.lake_level_raw(wdir) if lake else _flow_map.filled_raw(wdir)
-			var floor_t := minf(e, wl - PlanetFlowMap.VALLEY_DEPTH)   # fond de vallée (ne surélève jamais le sol)
+			var vd: float = PlanetFlowMap.LAKE_DEPTH if lake else PlanetFlowMap.VALLEY_DEPTH   # lacs plus profonds que les vallées de rivière
+			var floor_t := minf(e, wl - vd)   # fond de vallée/lac (ne surélève jamais le sol)
 			e = lerpf(e, floor_t, clampf(prox * WATER_CONFORM, 0.0, 0.95))
 	return clampf(e, -1.0, ELEV_MAX)
 

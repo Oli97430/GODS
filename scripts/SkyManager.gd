@@ -17,6 +17,14 @@ const PRECIP_FOG_MULT := 3.0                     # densité de fog ×(1+ceci) so
 const OVERCAST_FOG := Color(0.55, 0.57, 0.62)    # teinte de fog gris quand couvert
 const FLASH_AMBIENT := 2.6                       # pic d'ambiant pendant un éclair (illumine jour ET nuit)
 const FLASH_SUN := 2.2                           # appoint directionnel d'éclair (de jour seulement)
+# Univers sous-marin (CP1a) : ambiance appliquée quand la tête passe sous le niveau de mer (Y0).
+const UNDERWATER_FOG := Color(0.02, 0.16, 0.22)  # brume sous-marine bleu-vert profond
+const UNDERWATER_DENSITY := 0.045                # densité fog immergé (visibilité ~20-40 m, eau trouble)
+const UNDERWATER_AMBIENT_MULT := 0.5             # ambiant ×0.5 sous l'eau (pénombre filtrée d'en haut)
+# CP3 — profondeur : plus on descend, plus c'est sombre/dense/bleu (les rais de lumière s'estompent en bas).
+const UNDERWATER_FOG_DEEP := Color(0.01, 0.06, 0.11)  # bleu sombre des profondeurs
+const UNDERWATER_DENSITY_DEEP := 0.085                # eau plus trouble en profondeur (visibilité réduite)
+const UNDERWATER_AMBIENT_DEEP := 0.22                 # pénombre marquée au fond
 
 var _sun: DirectionalLight3D
 var _landing_dir := Vector3.UP
@@ -30,6 +38,8 @@ var _dome = null                  # SkyDome (addon Sky3D) si présent : on lui p
 var _aurora_strength := 0.0
 var _aurora_color := Color(0.12, 1.0, 0.45)
 var _aurora_color2 := Color(0.25, 0.55, 1.0)
+var _submerged := 0.0   # 0 = au-dessus de l'eau, 1 = tête immergée (CP1a : piloté par SurfaceView)
+var _depth01 := 0.0     # 0 = à la surface, 1 = profondeur pleine (CP3 : assombrit/épaissit le fog)
 
 # Branche le manager sur la lumière, le point d'atterrissage, l'environnement et la teinte
 # d'atmosphère de la planète, et installe le ciel dynamique.
@@ -39,6 +49,7 @@ func setup(sun: DirectionalLight3D, landing_dir: Vector3, env: Environment, atmo
 	_env = env
 	_atmo = atmo
 	_base_fog_density = env.fog_density if env else 0.0
+	_submerged = 0.0   # nouvel environnement => repart au-dessus de l'eau
 	_compute_aurora(seed_local)
 	if _sun:
 		_sun.shadow_enabled = false   # mobile-friendly (pas d'ombres dynamiques)
@@ -91,6 +102,12 @@ func set_lightning(l: LightningEffect) -> void:
 # orbite↔sol) + la couverture nuageuse (depuis WeatherSystem) à chaque frame.
 func set_dome(d) -> void:
 	_dome = d
+
+# Univers sous-marin (CP1a) : facteur 0..1 d'immersion de la tête (caméra sous le niveau de mer Y0),
+# poussé chaque frame par SurfaceView. _update fond le fog/ambient vers l'ambiance sous-marine quand >0.
+func set_submerged(f: float, depth01: float = 0.0) -> void:
+	_submerged = clampf(f, 0.0, 1.0)
+	_depth01 = clampf(depth01, 0.0, 1.0)
 
 func _process(_dt: float) -> void:
 	if GameState.current_scale != GameState.Scale.SURFACE:
@@ -148,6 +165,24 @@ func _update(_dt: float) -> void:
 		_env.fog_light_color = fog_col
 		_env.ambient_light_energy = lerpf(NIGHT_AMBIENT, DAY_AMBIENT, day) * (1.0 - coverage * 0.3) + flash * FLASH_AMBIENT
 		_env.fog_density = _base_fog_density * (1.0 + precip * PRECIP_FOG_MULT)
+		# Univers sous-marin (CP1a) : tête sous le niveau de mer => brume bleu-vert dense + pénombre.
+		# _update recalcule fog/ambient depuis la base CHAQUE frame => _submerged=0 ⇒ no-op exact (zéro
+		# régression au-dessus de l'eau, zéro fuite d'état au retour en surface).
+		if _submerged > 0.001:
+			# Teinte / densité / pénombre dépendent de la PROFONDEUR (CP3) : surface claire -> fond sombre.
+			var uw_fog := UNDERWATER_FOG.lerp(UNDERWATER_FOG_DEEP, _depth01)
+			var uw_density := lerpf(UNDERWATER_DENSITY, UNDERWATER_DENSITY_DEEP, _depth01)
+			var uw_amb := lerpf(UNDERWATER_AMBIENT_MULT, UNDERWATER_AMBIENT_DEEP, _depth01)
+			_env.fog_light_color = _env.fog_light_color.lerp(uw_fog, _submerged)
+			_env.fog_density = lerpf(_env.fog_density, uw_density, _submerged)
+			_env.ambient_light_energy *= 1.0 - (1.0 - uw_amb) * _submerged
+			# Color grade sous-marin (CP3 polish) : l'eau absorbe les couleurs => désaturation + léger
+			# assombrissement, accentués en profondeur. Désactivé hors de l'eau (rendu d'origine intact).
+			_env.adjustment_enabled = true
+			_env.adjustment_saturation = lerpf(1.0, 0.68, _submerged * (0.6 + 0.4 * _depth01))
+			_env.adjustment_brightness = lerpf(1.0, 0.88, _submerged)
+		elif _env.adjustment_enabled:
+			_env.adjustment_enabled = false   # hors de l'eau : pas de color grade (rendu d'origine intact)
 
 # Oriente la lumière pour que basis.z = direction VERS le soleil (elle éclaire en -z).
 func _orient_sun(toward_sun: Vector3) -> void:

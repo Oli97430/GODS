@@ -19,6 +19,7 @@ const DEFAULT_W := 512   # longitude
 const DEFAULT_H := 256   # latitude
 const WATER_THRESHOLD := 0.05   # phase 23 : force de rivière mini = « il y a de l'eau ici » (seuil PARTAGÉ)
 const VALLEY_DEPTH := 0.14      # phase 24 : profondeur de la VALLÉE/bassin creusé sous le niveau hydrologique (≈23 m)
+const LAKE_DEPTH := 0.24        # univers sous-marin : lacs PLUS PROFONDS que les vallées de rivière (~40 m ; centre creusé, rive stable)
 const RIVER_DEPTH := 0.012      # phase 24 : profondeur d'eau d'une rivière au fond de sa vallée (≈2 m)
 const WARP_AMP := 0.035         # phase 23 : domain-warp de l'ÉCHANTILLONNAGE (rivières/vallées qui serpentent)
 const WARP_FREQ := 7.0          # fréquence du warp (méandres naturels)
