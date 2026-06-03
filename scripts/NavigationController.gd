@@ -34,6 +34,10 @@ const XR_HOME_POS := Vector3(0.0, 1.3, -0.7)
 const XR_HOME_SCALE := 0.012
 const XR_SCALE_MIN := 0.004
 const XR_SCALE_MAX := 0.06
+# Galaxie : échelle de DÉPART/retour — on commence IMMERGÉ au cœur (les étoiles enveloppent le joueur) plutôt
+# que face à un disque lointain. On peut ensuite dézoomer (stick) pour voir tout le disque.
+const GALAXY_XR_HOME_SCALE := 0.05
+const GALAXY_DESKTOP_HOME_SCALE := 1.7
 const GRIP_THRESHOLD := 0.6
 const TRIGGER_THRESHOLD := 0.6
 const STICK_DEADZONE := 0.15
@@ -75,10 +79,14 @@ func _ready() -> void:
 	set_active_view(galaxy_view, GameState.Scale.GALAXY, true)
 
 # Transform « maison » d'une vue selon le mode (bureau plein cadre / hologramme XR).
-func get_home_transform(_scale_kind) -> Transform3D:
+func get_home_transform(scale_kind) -> Transform3D:
+	# Galaxie : on démarre IMMERGÉ au cœur (échelle agrandie). Les autres échelles gardent leur cadrage maison.
+	var galaxy: bool = scale_kind == GameState.Scale.GALAXY
 	if GameState.xr_active:
-		return Transform3D(Basis.IDENTITY.scaled(Vector3.ONE * XR_HOME_SCALE), XR_HOME_POS)
-	return Transform3D(Basis.IDENTITY, Vector3.ZERO)
+		var s: float = GALAXY_XR_HOME_SCALE if galaxy else XR_HOME_SCALE
+		return Transform3D(Basis.IDENTITY.scaled(Vector3.ONE * s), XR_HOME_POS)
+	var ds: float = GALAXY_DESKTOP_HOME_SCALE if galaxy else 1.0
+	return Transform3D(Basis.IDENTITY.scaled(Vector3.ONE * ds), Vector3.ZERO)
 
 # Désigne la vue manipulée. reset_home=true repose la vue à son home ; sinon conserve sa transform.
 func set_active_view(view, scale_kind, reset_home: bool) -> void:

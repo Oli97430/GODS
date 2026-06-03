@@ -26,6 +26,22 @@ var fire_interval_ads := 0.42                    # s (tir secondaire, plus lent)
 var zoom_fov := 16.0                             # ° retirés au FOV en visée (bureau)
 var dmg := 1.0                                   # dégâts par tir primaire
 var dmg_charged := 2.0                            # dégâts tir secondaire
+# --- Mode PROJECTILE (lance-grenades) : tir balistique en cloche au lieu du hitscan ---
+var projectile_mode := false
+var grenade_speed := 26.0      # m/s initiale
+var grenade_gravity := 22.0    # m/s²
+var grenade_fuse := 3.0        # s avant airburst si rien touché
+var grenade_damage := 5.0      # dégâts au centre de l'explosion
+var grenade_blast := 6.0       # m : rayon de zone
+# --- Ressenti / projectile (par arme) ---
+var muzzle_energy := 6.0       # énergie du flash de bouche
+var recoil_kick := 0.025       # recul : translation Z
+var recoil_pitch := 8.0        # recul : tangage (°)
+var bolt_travel := false       # true => bolt VISUEL qui voyage (ressenti projectile) au lieu du tracer instantané
+var bolt_speed := 130.0        # m/s du bolt visuel
+var fire_haptic := 0.45        # amplitude haptique manette au tir (primaire)
+var fire_haptic_ads := 0.6     # amplitude haptique manette au tir (secondaire)
+var vest_recoil := 0.4         # poids du recul sur le gilet bHaptics (0..1, par arme)
 
 var _visual: Node3D
 var _visual_base := Transform3D.IDENTITY
@@ -47,6 +63,7 @@ var _reticle: MeshInstance3D
 var _reticle_mat: StandardMaterial3D
 var _laser: MeshInstance3D
 var _laser_mat: StandardMaterial3D
+var sight_enabled := true   # false => masque réticule/laser flottants (ex. quand la lunette VR les remplace)
 
 func _ready() -> void:
 	_build_gun()
@@ -60,7 +77,7 @@ func _build_gun() -> void:
 		if scene:
 			_model = scene.instantiate()
 			_visual.add_child(_model)
-			var r := _scene_aabb(_model, Transform3D.IDENTITY)
+			var r := CombatUtil.scene_aabb(_model, Transform3D.IDENTITY)
 			if r.has and r.box.size.length() > 0.0001:
 				var longest: float = maxf(maxf(r.box.size.x, r.box.size.y), r.box.size.z)
 				var s: float = model_length / maxf(longest, 0.0001)
@@ -69,7 +86,7 @@ func _build_gun() -> void:
 				_model.position = -grip
 				_visual.scale = Vector3(s, s, s)
 			_visual.rotation = Vector3(deg_to_rad(model_rot_deg.x), deg_to_rad(model_rot_deg.y), deg_to_rad(model_rot_deg.z))
-			_disable_shadows(_model)
+			CombatUtil.disable_shadows(_model)
 	if _model == null:
 		_build_procedural()
 	_visual_base = _visual.transform
@@ -163,42 +180,18 @@ func _add_box(size: Vector3, pos: Vector3, mat: StandardMaterial3D) -> void:
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	_visual.add_child(mi)
 
-func _scene_aabb(node: Node, xf: Transform3D) -> Dictionary:
-	var cur := xf
-	if node is Node3D:
-		cur = xf * (node as Node3D).transform
-	var box := AABB()
-	var has := false
-	if node is VisualInstance3D:
-		box = _xform_aabb(cur, (node as VisualInstance3D).get_aabb())
-		has = true
-	for c in node.get_children():
-		var r := _scene_aabb(c, cur)
-		if r.has:
-			box = box.merge(r.box) if has else r.box
-			has = true
-	return {"box": box, "has": has}
-
-func _xform_aabb(t: Transform3D, a: AABB) -> AABB:
-	var mn := t * a.position
-	var mx := mn
-	for i in range(1, 8):
-		var corner := a.position + Vector3(a.size.x * float(i & 1), a.size.y * float((i >> 1) & 1), a.size.z * float((i >> 2) & 1))
-		var p := t * corner
-		mn = mn.min(p)
-		mx = mx.max(p)
-	return AABB(mn, mx - mn)
-
-func _disable_shadows(node: Node) -> void:
-	if node is GeometryInstance3D:
-		(node as GeometryInstance3D).cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	for c in node.get_children():
-		_disable_shadows(c)
 
 func muzzle_world() -> Vector3:
 	return _flash.global_position if _flash else global_position
 
+# Transform de l'axe de VISÉE (bouche figée) : origine = bouche, -basis.z = direction de tir, basis.y = haut
+# de l'arme. Utilisé par la lunette VR pour placer sa caméra de rendu le long du canon.
+func aim_transform() -> Transform3D:
+	return _muzzle.global_transform if _muzzle else global_transform
+
 func fire(exclude: Array, charged := false) -> Dictionary:
+	if projectile_mode:
+		return _fire_grenade(exclude, charged)
 	var mt := _muzzle.global_transform
 	var from := mt.origin
 	var dir := -mt.basis.z.normalized()
@@ -215,12 +208,15 @@ func fire(exclude: Array, charged := false) -> Dictionary:
 			result.pos = h.position
 			result.collider = h.collider
 	var col: Color = charged_color if charged else bolt_color
-	_tracer_to = result.pos
-	_tracer_col = col
-	_tracer_width = 0.10 if charged else 0.05
-	_tracer_t = TRACER_LIFE
+	if bolt_travel:
+		_spawn_bolt(result.pos, charged)   # bolt visuel qui voyage (ressenti projectile)
+	else:
+		_tracer_to = result.pos
+		_tracer_col = col
+		_tracer_width = 0.10 if charged else 0.05
+		_tracer_t = TRACER_LIFE
 	_flash.light_color = col
-	_flash.light_energy = 9.0 if charged else 6.0
+	_flash.light_energy = muzzle_energy * (1.5 if charged else 1.0)
 	_flash_t = 0.06 if charged else 0.05
 	_spark.light_color = col
 	_spark.global_position = result.pos
@@ -229,13 +225,33 @@ func fire(exclude: Array, charged := false) -> Dictionary:
 	_recoil = 1.0
 	return result
 
-func _look_basis(fwd: Vector3) -> Basis:
-	var up := Vector3.UP
-	if absf(fwd.dot(up)) > 0.99:
-		up = Vector3.RIGHT
-	var x := up.cross(fwd).normalized()
-	var y := fwd.cross(x).normalized()
-	return Basis(x, y, fwd)
+# Tir balistique (lance-grenades) : lance une Grenade depuis la bouche, sans hitscan ni tracer. La grenade
+# gère son vol + son explosion de zone. Recul + flash visuels conservés.
+func _fire_grenade(exclude: Array, charged: bool) -> Dictionary:
+	var mt := _muzzle.global_transform
+	var from := mt.origin
+	var dir := -mt.basis.z.normalized()
+	var g = preload("res://scripts/Grenade.gd").new()
+	var spd := grenade_speed * (1.18 if charged else 1.0)   # tir secondaire = lancé plus loin
+	var dmg2 := grenade_damage * (1.6 if charged else 1.0)
+	var blast2 := grenade_blast * (1.2 if charged else 1.0)
+	g.setup(from, dir, spd, grenade_gravity, grenade_fuse, dmg2, blast2, exclude)
+	get_tree().current_scene.add_child(g)
+	var col: Color = charged_color if charged else bolt_color
+	_flash.light_color = col
+	_flash.light_energy = 9.0 if charged else 6.0
+	_flash_t = 0.06
+	_recoil = 1.0
+	return {"hit": false, "pos": from, "collider": null, "charged": charged, "launched": true}
+
+# Bolt visuel (ressenti projectile) pour le mode hitscan : orbe qui voyage du canon au point d'impact.
+func _spawn_bolt(to: Vector3, charged: bool) -> void:
+	var b = preload("res://scripts/BoltVisual.gd").new()
+	var from := _flash.global_position if _flash else _muzzle.global_position
+	var c: Color = charged_color if charged else bolt_color
+	b.setup(from, to, c, bolt_speed, (0.18 if charged else 0.12))
+	get_tree().current_scene.add_child(b)
+
 
 # Réticule = anneau fin + point central, dans le plan XY local (rayon unité), orienté face caméra à l'usage.
 func _reticle_mesh() -> ArrayMesh:
@@ -265,8 +281,8 @@ func _reticle_mesh() -> ArrayMesh:
 func _recoil_xform() -> Transform3D:
 	if _recoil <= 0.001:
 		return Transform3D.IDENTITY
-	var rot := Basis(Vector3.RIGHT, deg_to_rad(RECOIL_PITCH) * _recoil)
-	return Transform3D(rot, Vector3(0.0, 0.0, RECOIL_KICK * _recoil))
+	var rot := Basis(Vector3.RIGHT, deg_to_rad(recoil_pitch) * _recoil)
+	return Transform3D(rot, Vector3(0.0, 0.0, recoil_kick * _recoil))
 
 func _process(delta: float) -> void:
 	if _recoil > 0.0:
@@ -282,7 +298,7 @@ func _process(delta: float) -> void:
 			if len > 0.001:
 				dir /= len
 				var mid := (from + _tracer_to) * 0.5
-				_tracer.global_transform = Transform3D(_look_basis(dir).scaled(Vector3(_tracer_width, _tracer_width, len)), mid)
+				_tracer.global_transform = Transform3D(CombatUtil.look_basis(dir).scaled(Vector3(_tracer_width, _tracer_width, len)), mid)
 				var a := clampf(_tracer_t / TRACER_LIFE, 0.0, 1.0)
 				_tracer_mat.albedo_color = Color(_tracer_col.r, _tracer_col.g, _tracer_col.b, 0.9 * a)
 				_tracer.visible = true
@@ -305,11 +321,14 @@ func _process(delta: float) -> void:
 # Viseur : raycast depuis la bouche FIGÉE (= là où le tir partira) → pose le réticule au point d'impact (face
 # caméra, taille angulaire ~constante) et étire le laser du canon visible jusqu'à ce point. Masqué si dégainé.
 func _update_sight() -> void:
-	if not visible or _muzzle == null:
+	if not visible or _muzzle == null or not sight_enabled:
 		if _reticle:
 			_reticle.visible = false
 		if _laser:
 			_laser.visible = false
+		return
+	if projectile_mode:
+		_update_arc_sight()
 		return
 	var mt := _muzzle.global_transform
 	var from := mt.origin
@@ -329,7 +348,7 @@ func _update_sight() -> void:
 			var d := from.distance_to(hit_pos)
 			var rs := clampf(d, 1.0, RANGE) * 0.012   # taille angulaire ~constante
 			var rpos := hit_pos + look.normalized() * 0.03   # léger décalage anti-z-fight
-			_reticle.global_transform = Transform3D(_look_basis(look.normalized()).scaled(Vector3(rs, rs, rs)), rpos)
+			_reticle.global_transform = Transform3D(CombatUtil.look_basis(look.normalized()).scaled(Vector3(rs, rs, rs)), rpos)
 			_reticle.visible = true
 	if _laser:
 		var lfrom := _flash.global_position if _flash else from
@@ -337,7 +356,40 @@ func _update_sight() -> void:
 		var llen := seg.length()
 		if llen > 0.02:
 			var lmid := (lfrom + hit_pos) * 0.5
-			_laser.global_transform = Transform3D(_look_basis(seg / llen).scaled(Vector3(0.004, 0.004, llen)), lmid)
+			_laser.global_transform = Transform3D(CombatUtil.look_basis(seg / llen).scaled(Vector3(0.004, 0.004, llen)), lmid)
 			_laser.visible = true
 		else:
 			_laser.visible = false
+
+# Viseur balistique (lance-grenades) : simule l'arc de la grenade (vitesse + gravité) jusqu'au 1er impact,
+# pose le réticule au point d'impact PRÉDIT. Pas de laser droit (trompeur pour un tir en cloche).
+func _update_arc_sight() -> void:
+	if _laser:
+		_laser.visible = false
+	var mt := _muzzle.global_transform
+	var pos := mt.origin
+	var vel := -mt.basis.z.normalized() * grenade_speed
+	var impact := pos
+	var space := get_world_3d().direct_space_state
+	var dt := 0.05
+	for i in 40:
+		var nxt := pos + vel * dt
+		vel += Vector3.DOWN * grenade_gravity * dt
+		if space:
+			var q := PhysicsRayQueryParameters3D.create(pos, nxt)
+			q.collide_with_areas = true
+			var h := space.intersect_ray(q)
+			if not h.is_empty():
+				impact = h.position
+				break
+		pos = nxt
+		impact = pos
+	var cam := get_viewport().get_camera_3d()
+	if cam != null and _reticle:
+		var look := cam.global_position - impact
+		if look.length() > 0.001:
+			var d := mt.origin.distance_to(impact)
+			var rs := clampf(d, 1.0, RANGE) * 0.014
+			var rpos := impact + look.normalized() * 0.04
+			_reticle.global_transform = Transform3D(CombatUtil.look_basis(look.normalized()).scaled(Vector3(rs, rs, rs)), rpos)
+			_reticle.visible = true

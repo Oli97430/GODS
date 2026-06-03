@@ -77,9 +77,9 @@ func _ready() -> void:
 	add_child(_fireflies)
 	# Nuées d'oiseaux VARIÉES (vie ambiante) : 3 espèces (taille / couleur / altitude / vitesse / nombre).
 	var FLOCKS := [
-		{"count": 48, "radius": 42.0, "alt_lo": 14.0, "alt_hi": 30.0, "speed": 8.5, "bird_scale": 0.75, "body_color": Vector3(0.05, 0.06, 0.08), "flap_speed": 9.5},  # étourneaux : petits, hauts, rapides
-		{"count": 28, "radius": 34.0, "alt_lo": 9.0,  "alt_hi": 20.0, "speed": 6.5, "bird_scale": 1.15, "body_color": Vector3(0.12, 0.09, 0.07), "flap_speed": 6.0},  # passereaux bruns, moyens
-		{"count": 9,  "radius": 30.0, "alt_lo": 10.0, "alt_hi": 18.0, "speed": 5.0, "bird_scale": 2.3,  "body_color": Vector3(0.20, 0.20, 0.22), "flap_speed": 2.6},  # grands planeurs gris, lents
+		{"count": 48, "radius": 78.0, "alt_lo": 32.0, "alt_hi": 60.0, "speed": 8.5, "bird_scale": 1.0,  "body_color": Vector3(0.05, 0.06, 0.08), "flap_speed": 9.5},  # étourneaux : petits, hauts, rapides
+		{"count": 28, "radius": 62.0, "alt_lo": 24.0, "alt_hi": 44.0, "speed": 6.5, "bird_scale": 1.5,  "body_color": Vector3(0.12, 0.09, 0.07), "flap_speed": 6.0},  # passereaux bruns, moyens
+		{"count": 9,  "radius": 76.0, "alt_lo": 44.0, "alt_hi": 68.0, "speed": 5.0, "bird_scale": 3.4,  "body_color": Vector3(0.20, 0.20, 0.22), "flap_speed": 2.6},  # grands planeurs gris/mauves, lents — les plus lointains
 	]
 	for cfg in FLOCKS:
 		var fl = preload("res://scripts/Flock.gd").new()

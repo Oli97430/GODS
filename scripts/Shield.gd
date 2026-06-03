@@ -4,9 +4,9 @@ extends MeshInstance3D
 ## le montre/masque avec l'arme et le fait suivre la main gauche. La face bombée (+normale) pointe vers
 ## l'AVANT (-Z) = vers l'ennemi. (En CP3 il bloquera les tirs ennemis venant de face.)
 
-const WIDTH := 0.36
-const HEIGHT := 0.46
-const CURVE := 0.06     # m : profondeur de l'arc (bombe vers l'avant -Z)
+const WIDTH := 0.44
+const HEIGHT := 0.56
+const CURVE := 0.075    # m : profondeur de l'arc (bombe vers l'avant -Z)
 const NX := 10
 const NY := 12
 

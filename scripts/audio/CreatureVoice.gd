@@ -32,6 +32,8 @@ static func synth(v: Dictionary) -> AudioStreamWAV:
 	var vib_amt: float = v.get("vibrato_amt", 0.0)
 	var wave: int = v.get("wave", 0)
 	var ph := 0.0
+	var ph2 := 0.0     # désaccord (chorus) => appel plus ample
+	var pho := 0.0     # octave (harmonique douce) => timbre plus riche
 	var vph := 0.0
 	for i in n:
 		var t := float(i) / float(n)
@@ -40,11 +42,22 @@ static func synth(v: Dictionary) -> AudioStreamWAV:
 		ph += TAU * f / sr
 		if ph >= TAU:
 			ph -= TAU
-		var s := sin(ph)
+		ph2 += TAU * f * 1.006 / sr
+		if ph2 >= TAU:
+			ph2 -= TAU
+		pho += TAU * f * 2.0 / sr
+		if pho >= TAU:
+			pho -= TAU
+		var w1 := sin(ph)
+		var w2 := sin(ph2)
 		if wave == 1:
-			s = 4.0 * absf(ph / TAU - 0.5) - 1.0       # triangle
+			w1 = 4.0 * absf(ph / TAU - 0.5) - 1.0       # triangle
+			w2 = 4.0 * absf(ph2 / TAU - 0.5) - 1.0
 		elif wave == 2:
-			s = (ph / PI - 1.0) * 0.6                  # saw doux
+			w1 = (ph / PI - 1.0) * 0.6                  # saw doux
+			w2 = (ph2 / PI - 1.0) * 0.6
+		var s := w1 * 0.5 + w2 * 0.4 + sin(pho) * 0.14
 		buf[i] = s * 0.8
 	SfxSynth.apply_ar(buf, v.get("attack", 0.03), v.get("release", 0.15))
+	SfxSynth.normalize_peak(buf, 0.8)   # timbre enrichi, loudness préservée (la variation vient du volume_db par appel)
 	return SfxSynth.to_wav(buf)

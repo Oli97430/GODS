@@ -33,3 +33,6 @@ var combat_wave: int = 0          # numéro de la vague courante
 var combat_score: int = 0         # drones détruits dans la session de combat courante
 var combat_result_wave: int = 0   # vague atteinte (figée à la mort) — pour l'écran de fin de run
 var combat_result_score: int = 0  # score final (figé à la mort)
+var combat_overshield: float = 0.0     # PV de bouclier en sus (améliorations ramassées) — absorbés avant les PV
+var combat_dmg_mult: float = 1.0       # multiplicateur de dégâts (améliorations ramassées)
+var combat_firerate_mult: float = 1.0  # multiplicateur de cadence de tir (améliorations ramassées)

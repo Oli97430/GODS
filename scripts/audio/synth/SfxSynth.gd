@@ -42,3 +42,18 @@ static func make_buffer(dur: float, mix_rate := SR) -> PackedFloat32Array:
 	var buf := PackedFloat32Array()
 	buf.resize(maxi(int(dur * mix_rate), 1))
 	return buf
+
+# Normalise le buffer pour que son pic ABSOLU vaille `target` (en place). Sert à enrichir le TIMBRE d'un son
+# (plus de couches/harmoniques) SANS changer sa loudness perçue => le mix approuvé (niveaux play_*) reste intact,
+# et le pic < 1 garantit l'absence d'écrêtage. No-op si le buffer est silencieux ou le pic non fini (NaN).
+static func normalize_peak(buf: PackedFloat32Array, target: float) -> void:
+	var pk := 0.0
+	for v in buf:
+		var a := absf(v)
+		if a > pk:
+			pk = a
+	if not is_finite(pk) or pk < 0.0001:
+		return
+	var g := target / pk
+	for i in buf.size():
+		buf[i] *= g

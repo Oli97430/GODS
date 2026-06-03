@@ -64,6 +64,7 @@ var _weather_button: Button
 var _lamp_button: Button   # lampe nocturne du joueur (univers sous-marin / nuit)
 var _weapon_button: Button   # revolver du joueur (mode combat opt-in)
 var _plasma_button: Button   # fusil à plasma du joueur
+var _grenade_button: Button  # lance-grenades du joueur
 var _speed_idx := 1   # démarre à ×1 (cohérent avec le défaut TimeOfDay = 1.0 ; presets : pause/1/10/60/600)
 var _skip_idx := 0
 
@@ -155,19 +156,34 @@ func _build_ui() -> void:
 	_lamp_button.pressed.connect(_on_lamp)
 	vbox.add_child(_lamp_button)
 
-	# Armes (mode combat opt-in) : commute revolver / plasma (ré-appui = dégainer).
+	# Armes (mode combat opt-in) : revolver / plasma / grenade CÔTE À CÔTE (ré-appui sur l'arme active = dégainer).
+	var weapon_row := HBoxContainer.new()
+	weapon_row.add_theme_constant_override("separation", 6)
+	vbox.add_child(weapon_row)
 	_weapon_button = Button.new()
 	_weapon_button.text = "Revolver"
-	_weapon_button.add_theme_font_size_override("font_size", 18)
-	_weapon_button.custom_minimum_size = Vector2(0, 46)
+	_weapon_button.add_theme_font_size_override("font_size", 15)
+	_weapon_button.custom_minimum_size = Vector2(0, 50)
+	_weapon_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_weapon_button.clip_text = true
 	_weapon_button.pressed.connect(_on_weapon)
-	vbox.add_child(_weapon_button)
+	weapon_row.add_child(_weapon_button)
 	_plasma_button = Button.new()
 	_plasma_button.text = "Plasma"
-	_plasma_button.add_theme_font_size_override("font_size", 18)
-	_plasma_button.custom_minimum_size = Vector2(0, 46)
+	_plasma_button.add_theme_font_size_override("font_size", 15)
+	_plasma_button.custom_minimum_size = Vector2(0, 50)
+	_plasma_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_plasma_button.clip_text = true
 	_plasma_button.pressed.connect(_on_plasma)
-	vbox.add_child(_plasma_button)
+	weapon_row.add_child(_plasma_button)
+	_grenade_button = Button.new()
+	_grenade_button.text = "Grenade"
+	_grenade_button.add_theme_font_size_override("font_size", 15)
+	_grenade_button.custom_minimum_size = Vector2(0, 50)
+	_grenade_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_grenade_button.clip_text = true
+	_grenade_button.pressed.connect(_on_grenade)
+	weapon_row.add_child(_grenade_button)
 
 	_action_button = Button.new()
 	_action_button.text = "—"
@@ -530,16 +546,27 @@ func _on_plasma() -> void:
 		p.toggle_plasma()
 	_refresh_weapon_buttons()
 
-# Texte des boutons d'arme selon l'arme active du joueur (✓ sur l'arme sortie).
+func _on_grenade() -> void:
+	ui_confirm.emit()
+	var p = _player_ref()
+	if p != null and p.has_method("toggle_grenade"):
+		p.toggle_grenade()
+	_refresh_weapon_buttons()
+
+# Surligne (modulate vert) le bouton de l'arme active ; les autres restent blancs.
 func _refresh_weapon_buttons() -> void:
 	var n := ""
 	var pp = _player_ref()
 	if pp != null and pp.has_method("active_weapon_name"):
 		n = pp.active_weapon_name()
+	var on := Color(0.5, 1.0, 0.6)
+	var off := Color(1, 1, 1)
 	if _weapon_button:
-		_weapon_button.text = "Revolver ✓" if n == "Blaster" else "Revolver"
+		_weapon_button.modulate = on if n == "Blaster" else off
 	if _plasma_button:
-		_plasma_button.text = "Plasma ✓" if n == "Plasma" else "Plasma"
+		_plasma_button.modulate = on if n == "Plasma" else off
+	if _grenade_button:
+		_grenade_button.modulate = on if n == "Grenade" else off
 
 func _player_ref():
 	if _surface_view != null and _surface_view.has_method("get_player"):

@@ -5,6 +5,8 @@ extends Node
 
 const WAVE_GAP := 4.0       # s entre deux vagues (une fois la précédente nettoyée)
 const FIRST_DELAY := 2.5    # s avant la 1re vague (le temps de se préparer)
+const SPAWN_STAGGER := 0.12 # s entre deux apparitions de drone (spawn ÉCHELONNÉ => pas de pic de frame)
+const DROP_CHANCE := 0.5    # probabilité qu'un drone abattu lâche une amélioration ramassable
 
 var _player: Node3D
 var _drones: Array = []
@@ -12,6 +14,8 @@ var _wave := 0
 var _timer := 0.0
 var _active := false
 var _awaiting_clear := false   # une vague est en cours : son nettoyage déclenchera un soin
+var _to_spawn := 0             # drones restant à faire apparaître pour la vague en cours (échelonné)
+var _spawn_cd := 0.0           # minuterie d'échelonnement des apparitions
 var _rng := RandomNumberGenerator.new()
 
 func setup(player: Node3D) -> void:
@@ -31,10 +35,19 @@ func _process(delta: float) -> void:
 		_wave = 0
 		_timer = FIRST_DELAY
 		_awaiting_clear = false
+		_to_spawn = 0
 		GameState.combat_score = 0
 		GameState.combat_wave = 0
 		GameState.combat_result_wave = 0
 		GameState.combat_result_score = 0
+	# Apparition ÉCHELONNÉE de la vague (1 drone par SPAWN_STAGGER) — évite d'instancier n GLB en une frame.
+	if _to_spawn > 0:
+		_spawn_cd -= delta
+		if _spawn_cd <= 0.0:
+			_spawn_cd = SPAWN_STAGGER
+			_spawn_drone()
+			_to_spawn -= 1
+		return
 	_drones = _drones.filter(func(d): return is_instance_valid(d))
 	if _drones.is_empty():
 		if _awaiting_clear:   # vague précédente entièrement nettoyée => soin de récupération
@@ -49,18 +62,19 @@ func _start_wave() -> void:
 	_wave += 1
 	GameState.combat_wave = _wave
 	AudioEngine.play_wave_start()   # sting « ça commence »
-	var n := 2 + _wave   # 3, 4, 5, ... drones par vague
-	for i in n:
-		_spawn_drone()
+	_to_spawn = 2 + _wave   # 3, 4, 5, ... drones — apparition ÉCHELONNÉE dans _process (plus de boucle synchrone)
+	_spawn_cd = 0.0         # le 1er sort immédiatement
 	_timer = WAVE_GAP
 	_awaiting_clear = true   # cette vague nettoyée => soin
 
 func _spawn_drone() -> void:
 	if _player == null:
 		return
-	var ang := _rng.randf() * TAU
+	var fwd := CombatUtil.front_dir(_player)
+	var ang := _rng.randf_range(-1.0, 1.0) * deg_to_rad(85.0)   # spawn DANS le cône avant (±85°)
+	var dir := fwd.rotated(Vector3.UP, ang)
 	var dist := 26.0 + _rng.randf() * 12.0
-	var pos := _player.global_position + Vector3(cos(ang) * dist, _rng.randf_range(7.0, 18.0), sin(ang) * dist)
+	var pos := _player.global_position + dir * dist + Vector3.UP * _rng.randf_range(3.0, 12.0)
 	var d = preload("res://scripts/Drone.gd").new()
 	d.setup(_player, pos, _wave)
 	d.fire_cb = _on_drone_fire
@@ -79,14 +93,31 @@ func _on_bolt_hit(_pos: Vector3, dmg: float, vel: Vector3) -> void:
 	if _player != null and _player.has_method("enemy_hit"):
 		_player.enemy_hit(dmg, -vel)   # -vel = direction d'où vient le tir (vers le tireur)
 
-func _on_drone_died(_pos: Vector3) -> void:
+func _on_drone_died(pos: Vector3) -> void:
 	GameState.combat_score += 1   # +1 drone détruit
 	if _player != null and _player.has_method("on_kill"):
 		_player.on_kill()          # confirmation (tic brillant + haptique) côté joueur
+	# Loot : avec une chance, une amélioration ramassable tombe au point de destruction (enfant => nettoyée au _clear).
+	if _rng.randf() < DROP_CHANCE:
+		var p = preload("res://scripts/Pickup.gd").new()
+		p.setup(_player, _roll_pickup_kind(), pos)
+		add_child(p)
+
+# Tirage pondéré du type d'amélioration : soin un peu plus fréquent, puis dégâts / cadence / bouclier.
+func _roll_pickup_kind() -> int:
+	var r := _rng.randf()
+	if r < 0.34:
+		return 0    # KIND_HEAL
+	elif r < 0.60:
+		return 1    # KIND_DAMAGE
+	elif r < 0.82:
+		return 2    # KIND_RAPID
+	return 3        # KIND_SHIELD
 
 func _clear() -> void:
 	_active = false
 	_awaiting_clear = false
+	_to_spawn = 0
 	for c in get_children():
 		c.queue_free()   # drones + bolts
 	_drones.clear()

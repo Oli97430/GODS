@@ -335,26 +335,31 @@ func _synth_impact() -> AudioStreamWAV:
 	var n := buf.size()
 	var sr := float(SfxSynth.SR)
 	var ph := 0.0
+	var ph2 := 0.0
 	for i in n:
 		var t := float(i) / sr
-		var f := lerpf(95.0, 40.0, clampf(t / 0.35, 0.0, 1.0))   # sinus descendant 95 -> 40 Hz
+		var f := lerpf(95.0, 40.0, clampf(t / 0.35, 0.0, 1.0))   # sinus descendant 95 -> 40 Hz (le poids)
 		ph += TAU * f / sr
-		buf[i] = sin(ph) * 0.95 * exp(-t * 7.0)
+		ph2 += TAU * (f * 0.5) / sr                              # sous-octave => plus de corps
+		buf[i] = (sin(ph) * 0.8 + sin(ph2) * 0.4) * exp(-t * 7.0)
 	var nz := SynthNoise.new(SynthNoise.Kind.BROWN)
 	var lp := Biquad.new(sr)
-	lp.set_params(Biquad.Type.LOWPASS, 500.0, 0.7)
+	lp.set_params(Biquad.Type.LOWPASS, 500.0, 0.9)
 	var bn := mini(int(0.25 * sr), n)
 	for i in bn:
 		var t := float(i) / sr
-		buf[i] += lp.process(nz.next()) * 0.8 * exp(-t * 10.0)
+		buf[i] += lp.process(nz.next()) * 0.85 * exp(-t * 10.0)   # « whump » de corps
 	var wn := SynthNoise.new(SynthNoise.Kind.WHITE)
 	var hp := Biquad.new(sr)
 	hp.set_params(Biquad.Type.HIGHPASS, 2500.0, 0.7)
 	var cn := mini(int(0.05 * sr), n)
 	for i in cn:
 		var t := float(i) / sr
-		buf[i] += hp.process(wn.next()) * 0.5 * exp(-t * 45.0)   # transient sec du tout début
+		buf[i] += hp.process(wn.next()) * 0.5 * exp(-t * 45.0)   # crack sec du tout début
+	for i in n:
+		buf[i] = buf[i] / (1.0 + absf(buf[i]) * 0.5)             # soft-clip doux => cohésion + punch
 	SfxSynth.apply_ar(buf, 0.001, 0.14)
+	SfxSynth.normalize_peak(buf, 0.88)
 	return SfxSynth.to_wav(buf)
 
 # Blaster (mode combat) : « pew » laser — onde carrée descendante + éclat de bruit. Synthétisé une fois.
@@ -366,22 +371,35 @@ func play_blaster(world_pos: Vector3) -> void:
 	play_3d(_blaster_wav, world_pos, -6.0, randf_range(0.95, 1.08), "SFX")
 
 func _synth_blaster() -> AudioStreamWAV:
-	var dur := 0.16
+	# « Pew » d'énergie DENSE : 2 saws détunés balayés + sub bref + air bandpass résonant + click, soft-clippé.
+	var dur := 0.18
 	var buf := SfxSynth.make_buffer(dur)
 	var n := buf.size()
 	var sr := float(SfxSynth.SR)
-	var ph := 0.0
+	var o1 := Osc.new(SfxSynth.SR, 1500.0, Osc.Wave.SAW)
+	var o2 := Osc.new(SfxSynth.SR, 1509.0, Osc.Wave.SAW)   # détune => épaisseur
+	var sub := Osc.new(SfxSynth.SR, 180.0, Osc.Wave.SINE)
+	var nz := SynthNoise.new(SynthNoise.Kind.WHITE)
+	var cnz := SynthNoise.new(SynthNoise.Kind.WHITE)
+	var bp := Biquad.new(SfxSynth.SR)
 	for i in n:
 		var t := float(i) / sr
-		var f := lerpf(1400.0, 280.0, clampf(t / dur, 0.0, 1.0))   # zap descendant
-		ph += TAU * f / sr
-		var sq := 1.0 if sin(ph) > 0.0 else -1.0                   # carré => plus « laser »
-		buf[i] = sq * 0.5 * exp(-t * 16.0)
-	var nz := SynthNoise.new(SynthNoise.Kind.WHITE)
-	var cn := mini(int(0.02 * sr), n)
-	for i in cn:
-		buf[i] += nz.next() * 0.3 * (1.0 - float(i) / float(cn))   # éclat sec au départ
-	SfxSynth.apply_ar(buf, 0.001, 0.04)
+		var k := clampf(t / dur, 0.0, 1.0)
+		var f := lerpf(1500.0, 420.0, pow(k, 0.5))     # zap qui « retombe »
+		o1.set_freq(f)
+		o2.set_freq(f * 1.006)
+		sub.set_freq(lerpf(180.0, 90.0, k))
+		var body := (o1.next() * 0.5 + o2.next() * 0.5) * exp(-t * 13.0)
+		var subv := sub.next() * 0.5 * exp(-t * 22.0)
+		bp.set_params(Biquad.Type.BANDPASS, lerpf(3200.0, 900.0, k), 1.4)
+		var air := bp.process(nz.next()) * 0.5 * exp(-t * 16.0)
+		var click := 0.0
+		if t < 0.008:
+			click = cnz.next() * 0.6 * (1.0 - t / 0.008)
+		var s := (body + subv + air + click) * 0.9
+		buf[i] = s / (1.0 + absf(s))                    # soft-clip => chaleur
+	SfxSynth.apply_ar(buf, 0.001, 0.05)
+	SfxSynth.normalize_peak(buf, 0.6)
 	return SfxSynth.to_wav(buf)
 
 var _enemy_shot_wav: AudioStreamWAV
@@ -394,22 +412,35 @@ func play_enemy_shot(world_pos: Vector3) -> void:
 	play_3d(_enemy_shot_wav, world_pos, -9.0, randf_range(0.92, 1.05), "SFX")
 
 func _synth_enemy_shot() -> AudioStreamWAV:
-	var dur := 0.22
+	# Zap GRAVE et grognant (distinct du blaster joueur) : 2 saws bas détunés + sub + lowpass résonant, soft-clippé.
+	var dur := 0.24
 	var buf := SfxSynth.make_buffer(dur)
 	var n := buf.size()
 	var sr := float(SfxSynth.SR)
-	var ph := 0.0
+	var o1 := Osc.new(SfxSynth.SR, 700.0, Osc.Wave.SAW)
+	var o2 := Osc.new(SfxSynth.SR, 705.0, Osc.Wave.SAW)
+	var sub := Osc.new(SfxSynth.SR, 120.0, Osc.Wave.SINE)
+	var nz := SynthNoise.new(SynthNoise.Kind.WHITE)
+	var cnz := SynthNoise.new(SynthNoise.Kind.WHITE)
+	var lp := Biquad.new(SfxSynth.SR)
 	for i in n:
 		var t := float(i) / sr
-		var f := lerpf(620.0, 130.0, clampf(t / dur, 0.0, 1.0))   # grave => menaçant
-		ph += TAU * f / sr
-		var sq := 1.0 if sin(ph) > 0.0 else -1.0
-		buf[i] = sq * 0.42 * exp(-t * 11.0)
-	var nz := SynthNoise.new(SynthNoise.Kind.WHITE)
-	var cn := mini(int(0.03 * sr), n)
-	for i in cn:
-		buf[i] += nz.next() * 0.22 * (1.0 - float(i) / float(cn))
-	SfxSynth.apply_ar(buf, 0.001, 0.05)
+		var k := clampf(t / dur, 0.0, 1.0)
+		var f := lerpf(700.0, 150.0, pow(k, 0.6))
+		o1.set_freq(f)
+		o2.set_freq(f * 1.008)
+		sub.set_freq(lerpf(120.0, 60.0, k))
+		var body := (o1.next() * 0.5 + o2.next() * 0.5) * exp(-t * 9.0)
+		var subv := sub.next() * 0.55 * exp(-t * 13.0)
+		lp.set_params(Biquad.Type.LOWPASS, lerpf(2000.0, 420.0, k), 3.0)   # résonant => grognement menaçant
+		var grit := lp.process(nz.next()) * 0.5 * exp(-t * 10.0)
+		var click := 0.0
+		if t < 0.006:
+			click = cnz.next() * 0.4 * (1.0 - t / 0.006)
+		var s := (body + subv + grit + click) * 0.9
+		buf[i] = s / (1.0 + absf(s))
+	SfxSynth.apply_ar(buf, 0.001, 0.06)
+	SfxSynth.normalize_peak(buf, 0.5)
 	return SfxSynth.to_wav(buf)
 
 var _hit_confirm_wav: AudioStreamWAV
@@ -428,19 +459,30 @@ func play_hit_confirm(killed: bool) -> void:
 		play_2d(_hit_confirm_wav, -17.0, randf_range(0.97, 1.06), "SFX")
 
 func _synth_confirm(killed: bool) -> AudioStreamWAV:
-	var dur := 0.12 if killed else 0.05
+	# « Blip » de confirmation : fondamentale + octave (timbre de cloche) + tick de bruit ; kill => monte + plus brillant.
+	var dur := 0.14 if killed else 0.06
 	var buf := SfxSynth.make_buffer(dur)
 	var n := buf.size()
 	var sr := float(SfxSynth.SR)
-	var f0 := 1600.0 if killed else 2100.0
-	var ph := 0.0
+	var f0 := 1500.0 if killed else 2000.0
+	var o := Osc.new(SfxSynth.SR, f0, Osc.Wave.SINE)
+	var oh := Osc.new(SfxSynth.SR, f0 * 2.0, Osc.Wave.SINE)
+	var nz := SynthNoise.new(SynthNoise.Kind.WHITE)
 	for i in n:
 		var t := float(i) / sr
-		var rise := 0.5 * clampf(t / dur, 0.0, 1.0) if killed else 0.0   # kill : monte (résolution)
-		var f := f0 * (1.0 + rise)
-		ph += TAU * f / sr
-		buf[i] = sin(ph) * 0.4 * exp(-t * (24.0 if killed else 55.0))
-	SfxSynth.apply_ar(buf, 0.001, 0.02)
+		var k := clampf(t / dur, 0.0, 1.0)
+		var rise := (1.0 + 0.5 * k) if killed else 1.0
+		o.set_freq(f0 * rise)
+		oh.set_freq(f0 * 2.0 * rise)
+		var dec := exp(-t * (22.0 if killed else 52.0))
+		var tone := (o.next() * 0.6 + oh.next() * 0.25) * dec
+		var tick := 0.0
+		if t < 0.004:
+			tick = nz.next() * 0.4 * (1.0 - t / 0.004)
+		var s := (tone + tick) * 0.8
+		buf[i] = s / (1.0 + absf(s))
+	SfxSynth.apply_ar(buf, 0.0005, 0.02)
+	SfxSynth.normalize_peak(buf, 0.4)
 	return SfxSynth.to_wav(buf)
 
 var _wave_start_wav: AudioStreamWAV
@@ -452,19 +494,143 @@ func play_wave_start() -> void:
 	play_2d(_wave_start_wav, -11.0, 1.0, "SFX")
 
 func _synth_wave_start() -> AudioStreamWAV:
-	var dur := 0.5
+	# Sting « ça commence » : 2 notes (montée d'une quinte) en saws détunés + sub, riser de bruit, bloom soft-clippé.
+	var dur := 0.6
 	var buf := SfxSynth.make_buffer(dur)
 	var n := buf.size()
 	var sr := float(SfxSynth.SR)
+	var half := dur * 0.5
+	var o1 := Osc.new(SfxSynth.SR, 146.0, Osc.Wave.SAW)
+	var o2 := Osc.new(SfxSynth.SR, 147.0, Osc.Wave.SAW)
+	var sub := Osc.new(SfxSynth.SR, 73.0, Osc.Wave.SINE)
+	var nz := SynthNoise.new(SynthNoise.Kind.WHITE)
+	var bp := Biquad.new(SfxSynth.SR)
+	for i in n:
+		var t := float(i) / sr
+		var second := t >= half
+		var root := 220.0 if second else 146.0       # 2e palier = quinte au-dessus (montée = tension)
+		o1.set_freq(root)
+		o2.set_freq(root * 1.007)
+		sub.set_freq(root * 0.5)
+		var lt := fmod(t, half)
+		var env := (1.0 - exp(-lt * 30.0)) * exp(-lt * 4.0)   # attaque douce + descente (bloom par note)
+		var body := (o1.next() * 0.5 + o2.next() * 0.5 + sub.next() * 0.5) * env
+		var riser := 0.0
+		if not second:
+			var rk := clampf(t / half, 0.0, 1.0)
+			bp.set_params(Biquad.Type.BANDPASS, lerpf(400.0, 3000.0, rk), 1.0)
+			riser = bp.process(nz.next()) * 0.3 * rk          # bruit qui monte vers la 2e note
+		var s := (body + riser) * 0.85
+		buf[i] = s / (1.0 + absf(s))
+	SfxSynth.apply_ar(buf, 0.005, 0.08)
+	SfxSynth.normalize_peak(buf, 0.32)
+	return SfxSynth.to_wav(buf)
+
+var _plasma_wav: AudioStreamWAV
+var _plasma_hit_wav: AudioStreamWAV
+
+# Tir plasma : son DENSE et chaud (2 saws détunés + octave grave + sub punch + bruit passe-bas résonant balayé,
+# le tout soft-clippé) — fini le « laser carré » cheap. charged => plus grave et lourd (tir secondaire).
+func play_plasma(world_pos: Vector3, charged := false) -> void:
+	if _plasma_wav == null:
+		_plasma_wav = _synth_plasma()
+	var pitch := randf_range(0.96, 1.05)
+	if charged:
+		pitch *= 0.82
+	play_3d(_plasma_wav, world_pos, -3.0 if charged else -4.0, pitch, "SFX")
+
+func _synth_plasma() -> AudioStreamWAV:
+	var dur := 0.34
+	var buf := SfxSynth.make_buffer(dur)
+	var n := buf.size()
+	var sr := float(SfxSynth.SR)
+	var o1 := Osc.new(SfxSynth.SR, 540.0, Osc.Wave.SAW)
+	var o2 := Osc.new(SfxSynth.SR, 545.0, Osc.Wave.SAW)    # détune => épaisseur (battements)
+	var o3 := Osc.new(SfxSynth.SR, 270.0, Osc.Wave.SINE)   # octave grave (corps)
+	var sub := Osc.new(SfxSynth.SR, 92.0, Osc.Wave.SINE)
+	var nz := SynthNoise.new(SynthNoise.Kind.WHITE)
+	var lp := Biquad.new(SfxSynth.SR)
+	for i in n:
+		var t := float(i) / sr
+		var k := clampf(t / dur, 0.0, 1.0)
+		var f := lerpf(560.0, 150.0, pow(k, 0.55))         # balayage vers le grave
+		o1.set_freq(f)
+		o2.set_freq(f * 1.01)
+		o3.set_freq(f * 0.5)
+		sub.set_freq(lerpf(96.0, 52.0, k))
+		var body := (o1.next() * 0.5 + o2.next() * 0.5 + o3.next() * 0.4) * exp(-t * 6.5)
+		var subv := sub.next() * 0.7 * exp(-t * 10.0)
+		lp.set_params(Biquad.Type.LOWPASS, lerpf(4200.0, 600.0, k), 2.2)   # « énergie » filtrée balayée
+		var fizz := lp.process(nz.next()) * 0.45 * exp(-t * 8.0)
+		var click := nz.next() * 0.5 * (1.0 - t / 0.014) if t < 0.014 else 0.0
+		var s := (body + subv + fizz + click) * 0.9
+		buf[i] = s / (1.0 + absf(s))                        # soft-clip => chaleur + densité
+	SfxSynth.apply_ar(buf, 0.002, 0.11)
+	return SfxSynth.to_wav(buf)
+
+# Impact plasma (le bolt touche) : éclaboussure d'énergie — tone descendant + bruit bandpass qui grésille.
+func play_plasma_hit(world_pos: Vector3) -> void:
+	if _plasma_hit_wav == null:
+		_plasma_hit_wav = _synth_plasma_hit()
+	play_3d(_plasma_hit_wav, world_pos, -7.0, randf_range(0.95, 1.08), "SFX")
+
+func _synth_plasma_hit() -> AudioStreamWAV:
+	var dur := 0.18
+	var buf := SfxSynth.make_buffer(dur)
+	var n := buf.size()
+	var sr := float(SfxSynth.SR)
+	var nz := SynthNoise.new(SynthNoise.Kind.WHITE)
+	var bp := Biquad.new(SfxSynth.SR)
+	var o := Osc.new(SfxSynth.SR, 420.0, Osc.Wave.SINE)
+	for i in n:
+		var t := float(i) / sr
+		var k := clampf(t / dur, 0.0, 1.0)
+		o.set_freq(lerpf(440.0, 120.0, k))
+		var tone := o.next() * 0.4 * exp(-t * 16.0)
+		bp.set_params(Biquad.Type.BANDPASS, lerpf(2600.0, 700.0, k), 1.2)
+		var sizzle := bp.process(nz.next()) * 0.8 * exp(-t * 13.0)
+		var s := (tone + sizzle) * 0.9
+		buf[i] = s / (1.0 + absf(s))
+	SfxSynth.apply_ar(buf, 0.001, 0.05)
+	return SfxSynth.to_wav(buf)
+
+var _grenade_launch_wav: AudioStreamWAV
+
+# Lancement de grenade : « pomf » grave (bruit brun + sinus descendant), distinct des lasers. Spatialisé.
+func play_grenade_launch(world_pos: Vector3) -> void:
+	if _grenade_launch_wav == null:
+		_grenade_launch_wav = _synth_grenade_launch()
+	play_3d(_grenade_launch_wav, world_pos, -5.0, randf_range(0.95, 1.05), "SFX")
+
+func _synth_grenade_launch() -> AudioStreamWAV:
+	var dur := 0.18
+	var buf := SfxSynth.make_buffer(dur)
+	var n := buf.size()
+	var sr := float(SfxSynth.SR)
+	var nz := SynthNoise.new(SynthNoise.Kind.BROWN)
 	var ph := 0.0
 	for i in n:
 		var t := float(i) / sr
-		var f := 330.0 if t < dur * 0.5 else 495.0   # deux paliers (quinte)
+		var f := lerpf(170.0, 65.0, clampf(t / dur, 0.0, 1.0))   # « thunk » grave descendant
 		ph += TAU * f / sr
-		var env := exp(-fmod(t, dur * 0.5) * 6.0)     # ré-attaque à chaque palier
-		buf[i] = (1.0 if sin(ph) > 0.0 else -1.0) * 0.28 * env
-	SfxSynth.apply_ar(buf, 0.004, 0.06)
+		var tone := sin(ph) * 0.45 * exp(-t * 20.0)
+		var noise := nz.next() * 0.5 * exp(-t * 24.0)              # souffle du tube
+		buf[i] = tone + noise
+	SfxSynth.apply_ar(buf, 0.001, 0.05)
 	return SfxSynth.to_wav(buf)
+
+# Pré-génère TOUS les WAV de combat (sinon le 1er usage de chacun synthétise EN JEU => micro-hitch, gênant en
+# VR). Appelé une fois à l'équipement d'une arme. Idempotent (chaque synth ne tourne que si le cache est vide).
+func warmup_combat() -> void:
+	if _blaster_wav == null: _blaster_wav = _synth_blaster()
+	if _plasma_wav == null: _plasma_wav = _synth_plasma()
+	if _plasma_hit_wav == null: _plasma_hit_wav = _synth_plasma_hit()
+	if _grenade_launch_wav == null: _grenade_launch_wav = _synth_grenade_launch()
+	if _enemy_shot_wav == null: _enemy_shot_wav = _synth_enemy_shot()
+	if _hit_confirm_wav == null: _hit_confirm_wav = _synth_confirm(false)
+	if _kill_confirm_wav == null: _kill_confirm_wav = _synth_confirm(true)
+	if _wave_start_wav == null: _wave_start_wav = _synth_wave_start()
+	if _impact_wav == null: _impact_wav = _synth_impact()
 
 # Active/désactive la musique générative (toggle montre).
 func set_music_enabled(on: bool) -> void:

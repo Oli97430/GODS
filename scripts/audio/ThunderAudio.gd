@@ -10,7 +10,9 @@ const SR := 44100.0
 var stream: SynthStream
 var _env: Envelope
 var _lp: Biquad
+var _lpR: Biquad          # 2e passe-bas indépendant (droite) => roulement large
 var _brown := 0.0
+var _brownR := 0.0
 var _rng := RandomNumberGenerator.new()
 var _storm := 0.0
 var _timer := 1.0
@@ -24,6 +26,8 @@ func _ready() -> void:
 	_env.set_ar(0.5, 3.5)                 # montée lente + longue traîne
 	_lp = Biquad.new(SR)
 	_lp.set_params(Biquad.Type.LOWPASS, 280.0, 0.6)   # très étouffé => lointain
+	_lpR = Biquad.new(SR)
+	_lpR.set_params(Biquad.Type.LOWPASS, 280.0, 0.6)
 	_rng.randomize()
 	stream.start()
 
@@ -49,6 +53,10 @@ func _fill(buf: PackedVector2Array, frames: int) -> void:
 		var e := _env.ar()
 		_brown += (_rng.randf() * 2.0 - 1.0) * 0.02
 		_brown = clampf(_brown, -1.0, 1.0)
-		var r := _lp.process(_brown * 3.2) * e
-		var s := r * 0.5 * loud
-		buf[i] = Vector2(s, s)
+		_brownR += (_rng.randf() * 2.0 - 1.0) * 0.02
+		_brownR = clampf(_brownR, -1.0, 1.0)
+		var rL := _lp.process(_brown * 3.2) * e
+		var rR := _lpR.process(_brownR * 3.2) * e   # grondement décorrélé L/R => large
+		var sL := rL * 0.5 * loud
+		var sR := rR * 0.5 * loud
+		buf[i] = Vector2(sL, sR)

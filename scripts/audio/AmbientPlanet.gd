@@ -12,6 +12,8 @@ var _inc2 := 0.0
 var _inc3 := 0.0
 var _brown := 0.0
 var _lp := 0.0
+var _brownR := 0.0     # bruit DROITE indépendant => décorrélation = largeur stéréo
+var _lpR := 0.0
 var _lp_coef := 0.02
 var _bph := 0.0
 var _binc := 0.0
@@ -69,6 +71,8 @@ func _fill(buf: PackedVector2Array, frames: int) -> void:
 	var ph3 := _ph3
 	var brown := _brown
 	var lp := _lp
+	var brownR := _brownR
+	var lpR := _lpR
 	var bph := _bph
 	var coef := _lp_coef
 	for i in frames:
@@ -85,15 +89,26 @@ func _fill(buf: PackedVector2Array, frames: int) -> void:
 		if bph >= TAU:
 			bph -= TAU
 		var breath := 0.74 + 0.14 * sin(bph)
-		var drone := (sin(ph1) * 0.5 + sin(ph2) * _part_amp + sin(ph3) * 0.42) * breath
+		var fund := sin(ph1) * 0.5
+		var up2 := sin(ph2) * _part_amp          # partiel harmonique (palette seed)
+		var up3 := sin(ph3) * 0.42               # détune (battement)
+		# Fondamentale CENTRÉE ; partiel à gauche, détune à droite => largeur tonale.
+		var droneL := (fund + up2 * 1.35 + up3 * 0.6) * breath
+		var droneR := (fund + up2 * 0.6 + up3 * 1.35) * breath
 		brown += (_rng.randf() * 2.0 - 1.0) * 0.02
 		brown = clampf(brown, -1.0, 1.0)
 		lp += (brown * 3.2 - lp) * coef
-		var s := (drone * 0.42 + lp * 0.09) * amp
-		buf[i] = Vector2(s, s)
+		brownR += (_rng.randf() * 2.0 - 1.0) * 0.02
+		brownR = clampf(brownR, -1.0, 1.0)
+		lpR += (brownR * 3.2 - lpR) * coef
+		var sL := (droneL * 0.42 + lp * 0.09) * amp
+		var sR := (droneR * 0.42 + lpR * 0.09) * amp
+		buf[i] = Vector2(sL, sR)
 	_ph1 = ph1
 	_ph2 = ph2
 	_ph3 = ph3
 	_brown = brown
 	_lp = lp
+	_brownR = brownR
+	_lpR = lpR
 	_bph = bph

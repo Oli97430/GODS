@@ -53,8 +53,17 @@ func _draw() -> void:
 	if ratio < 0.3 and not GameState.combat_dead:
 		fill = fill.lerp(Color(1.0, 0.12, 0.10), (0.5 + 0.5 * sin(_t * 9.0)) * 0.7)   # pulse d'alerte PV bas
 	draw_rect(Rect2(bx, by, BAR_W * ratio, BAR_H), fill, true)
+	# Bouclier en sus (améliorations ramassées) : segment cyan à droite des PV.
+	if GameState.combat_overshield > 0.0 and GameState.combat_hp_max > 0.0:
+		var os := clampf(GameState.combat_overshield / GameState.combat_hp_max, 0.0, 1.0)
+		var ox := bx + BAR_W * ratio
+		var ow := minf(BAR_W * os, BAR_W - BAR_W * ratio)
+		if ow > 0.0:
+			draw_rect(Rect2(ox, by, ow, BAR_H), Color(0.35, 0.8, 1.0, 0.9), true)
 	draw_rect(Rect2(bx, by, BAR_W, BAR_H), Color(1, 1, 1, 0.25), false, 1.0)
 	var hp_txt := "PV %d / %d" % [int(round(GameState.combat_hp)), int(round(GameState.combat_hp_max))]
+	if GameState.combat_overshield > 0.0:
+		hp_txt += "  (+%d)" % int(round(GameState.combat_overshield))
 	var hs := _font.get_string_size(hp_txt, HORIZONTAL_ALIGNMENT_LEFT, -1, 16)
 	draw_string(_font, Vector2(bx + (BAR_W - hs.x) * 0.5, by + BAR_H - 5), hp_txt, HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color(1, 1, 1, 0.95))
 	# --- Vague + score (haut-droite) ---
@@ -64,6 +73,16 @@ func _draw() -> void:
 	var iy := 34.0
 	draw_string(_font, Vector2(ix + 1, iy + 1), info, HORIZONTAL_ALIGNMENT_LEFT, -1, 20, Color(0, 0, 0, 0.6))
 	draw_string(_font, Vector2(ix, iy), info, HORIZONTAL_ALIGNMENT_LEFT, -1, 20, Color(1.0, 0.86, 0.45))
+	# Améliorations actives (sous le score, haut-droite).
+	var bf := ""
+	if GameState.combat_dmg_mult > 1.001:
+		bf += "DGT x%.1f   " % GameState.combat_dmg_mult
+	if GameState.combat_firerate_mult > 1.001:
+		bf += "CAD x%.1f" % GameState.combat_firerate_mult
+	bf = bf.strip_edges()
+	if bf != "":
+		var bsz := _font.get_string_size(bf, HORIZONTAL_ALIGNMENT_LEFT, -1, 16)
+		draw_string(_font, Vector2(vp.x - bsz.x - 24.0, iy + 26.0), bf, HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color(0.6, 0.95, 0.72))
 	# --- Annonce de nouvelle vague ---
 	if _announce_t > 0.0 and not GameState.combat_dead:
 		var a := clampf(_announce_t / 0.5, 0.0, 1.0)   # fondu sur la dernière 0,5 s

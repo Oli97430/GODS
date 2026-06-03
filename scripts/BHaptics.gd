@@ -214,6 +214,65 @@ func glide_buffet(intensity: float, dur := 120) -> void:
 		return
 	_submit_side("buffet", FRONT, _rows([0.6, 1.0, 0.8, 0.4, 0.2], 10.0 + 32.0 * clampf(intensity, 0.0, 1.0)), dur)
 
+# --- Motifs de COMBAT (phase 26) — ressenti opt-in, no-op si gilet absent ---------------------------
+
+# Recul d'arme : « coup » sec dans la poitrine (face avant, haut du torse), ∝ poids de l'arme 0..1.
+func weapon_recoil(strength: float) -> void:
+	if not is_suit_connected():
+		return
+	var base := 28.0 + 58.0 * clampf(strength, 0.0, 1.0)
+	_submit_side("recoil", FRONT, _rows([0.9, 1.0, 0.6, 0.2, 0.0], base), 90)
+
+# Encaissement DIRECTIONNEL : la secousse part de la direction d'où vient le tir (avant/arrière + côté).
+# local_dir = direction vers le tireur dans le repère caméra (x=droite, z=arrière) ; strength 0..1.
+func damage_hit(local_dir: Vector3, strength: float) -> void:
+	if not is_suit_connected():
+		return
+	var d := Vector2(local_dir.x, local_dir.z)
+	if d.length() < 0.01:
+		d = Vector2(0.0, -1.0)
+	d = d.normalized()
+	var pos := FRONT if d.y < 0.0 else BACK   # -Z (caméra) = devant => face avant du gilet
+	var cols := _dir_columns(d.x)
+	var base := 42.0 + 52.0 * clampf(strength, 0.0, 1.0)
+	var arr := []
+	arr.resize(DOTS_PER_SIDE)
+	var rw := [0.5, 0.85, 1.0, 0.75, 0.45]   # centré poitrine/ventre
+	for r in 5:
+		for c in 4:
+			arr[r * 4 + c] = base * rw[r] * cols[c]
+	_submit_side("dmg", pos, arr, 130)
+
+# Poids de colonnes (gauche→droite) selon le côté du tir : x=-1 gauche .. +1 droite.
+func _dir_columns(x: float) -> Array:
+	var l := clampf(0.55 - x, 0.2, 1.0)
+	var r := clampf(0.55 + x, 0.2, 1.0)
+	return [l, lerpf(l, r, 0.34), lerpf(l, r, 0.67), r]
+
+# Confirmation de destruction d'un drone : petit tap sec mi-poitrine.
+func kill_confirm() -> void:
+	if not is_suit_connected():
+		return
+	submit_dots("kill", FRONT, [[5, 48], [6, 48], [9, 30], [10, 30]], 60)
+
+# Soin (vague nettoyée) : nappe douce et chaude qui monte le long du torse. amount 0..1.
+func heal_pulse(amount: float) -> void:
+	if not is_suit_connected():
+		return
+	_submit_both("heal", _rows([0.3, 0.55, 0.8, 0.55, 0.3], 22.0 + 22.0 * clampf(amount, 0.0, 1.0)), 260)
+
+# Bouclier qui intercepte un tir : buzz sur la POITRINE GAUCHE (le bouclier est en main gauche).
+func shield_block() -> void:
+	if not is_suit_connected():
+		return
+	submit_dots("block", FRONT, [[0, 30], [4, 58], [8, 52], [12, 46], [16, 28]], 90)
+
+# Mort en combat : gros choc plein gilet (avant + arrière).
+func combat_death() -> void:
+	if not is_suit_connected():
+		return
+	_submit_both("cdeath", _uniform(92.0), 380)
+
 # --- Extensions ambiance / UI (appelées en cadence par les systèmes concernés) ---------------------
 
 # Pluie : quelques gouttes ÉPARSES (dots aléatoires faibles), avant + arrière. Intensité ∝ précip 0..1.

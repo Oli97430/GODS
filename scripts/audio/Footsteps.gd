@@ -66,10 +66,20 @@ func _synth(biome: int) -> AudioStreamWAV:
 			s += 0.7 * (1.0 - float(i) / 5.0)         # transient sec (pierre)
 		buf[i] = s
 	SfxSynth.apply_ar(buf, 0.002 if click else 0.005, rel)
-	if wet:                                            # « smack » mouillé : sine grave brève
-		var ph := 0.0
-		var wn := mini(int(0.06 * sr), n)
-		for i in wn:
-			ph += TAU * 120.0 / sr
-			buf[i] += sin(ph) * 0.3 * (1.0 - float(i) / float(wn))
+	# Corps grave bref = POIDS du pas (toutes surfaces) : sine basse dosée par biome (pas de normalisation pour
+	# garder le contraste de force neige↔roche). Remplace l'ancien « smack » mouillé en le généralisant.
+	var body_f := 108.0
+	var body_amp := 0.30
+	match biome:
+		PlanetGenerator.Biome.ROCK:
+			body_f = 132.0; body_amp = 0.28
+		PlanetGenerator.Biome.SNOW:
+			body_f = 78.0; body_amp = 0.15
+		PlanetGenerator.Biome.BEACH:
+			body_f = 92.0; body_amp = 0.36
+	var bph := 0.0
+	var bn := mini(int(0.06 * sr), n)
+	for i in bn:
+		bph += TAU * body_f / sr
+		buf[i] += sin(bph) * body_amp * (1.0 - float(i) / float(bn))
 	return SfxSynth.to_wav(buf)

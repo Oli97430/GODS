@@ -12,6 +12,8 @@ var _inc2 := 0.0
 var _inc3 := 0.0
 var _brown := 0.0
 var _lp := 0.0
+var _brownR := 0.0     # bruit DROITE indépendant => décorrélation = largeur stéréo
+var _lpR := 0.0
 var _bph := 0.0
 var _binc := 0.0
 var _rng := RandomNumberGenerator.new()
@@ -35,6 +37,8 @@ func _fill(buf: PackedVector2Array, frames: int) -> void:
 	var ph3 := _ph3
 	var brown := _brown
 	var lp := _lp
+	var brownR := _brownR
+	var lpR := _lpR
 	var bph := _bph
 	for i in frames:
 		ph1 += _inc1
@@ -50,15 +54,26 @@ func _fill(buf: PackedVector2Array, frames: int) -> void:
 		if bph >= TAU:
 			bph -= TAU
 		var breath := 0.72 + 0.16 * sin(bph)
-		var drone := (sin(ph1) * 0.5 + sin(ph2) * 0.28 + sin(ph3) * 0.45) * breath
+		var fund := sin(ph1) * 0.5
+		var up2 := sin(ph2) * 0.28          # quinte
+		var up3 := sin(ph3) * 0.45          # battement
+		# Fondamentale CENTRÉE (basse solide) ; quinte penchée à gauche, battement à droite => largeur tonale.
+		var droneL := (fund + up2 * 1.35 + up3 * 0.6) * breath
+		var droneR := (fund + up2 * 0.6 + up3 * 1.35) * breath
 		brown += (_rng.randf() * 2.0 - 1.0) * 0.02
 		brown = clampf(brown, -1.0, 1.0)
 		lp += (brown * 3.2 - lp) * 0.015
-		var s := (drone * 0.42 + lp * 0.10) * g
-		buf[i] = Vector2(s, s)
+		brownR += (_rng.randf() * 2.0 - 1.0) * 0.02
+		brownR = clampf(brownR, -1.0, 1.0)
+		lpR += (brownR * 3.2 - lpR) * 0.015
+		var sL := (droneL * 0.42 + lp * 0.10) * g
+		var sR := (droneR * 0.42 + lpR * 0.10) * g
+		buf[i] = Vector2(sL, sR)
 	_ph1 = ph1
 	_ph2 = ph2
 	_ph3 = ph3
 	_brown = brown
 	_lp = lp
+	_brownR = brownR
+	_lpR = lpR
 	_bph = bph

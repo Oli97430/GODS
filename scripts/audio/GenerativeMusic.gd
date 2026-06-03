@@ -34,11 +34,14 @@ func _ready() -> void:
 func _make_voice(idx: int) -> Dictionary:
 	var ranges := [[90.0, 200.0], [160.0, 340.0], [260.0, 540.0], [430.0, 900.0]]
 	var r: Array = ranges[idx]
+	var pans := [0.0, -0.5, 0.45, -0.35]    # voix grave CENTRÉE (basses solides) ; aiguës étalées en stéréo
+	var lpas := [0.10, 0.16, 0.20, 0.26]    # passe-bas 1-pôle (chaleur) : grave plus sombre, aiguë plus ouverte
 	return {
-		"wave": idx % 3, "lo": r[0], "hi": r[1], "ph": 0.0, "inc": 0.0, "env": 0.0, "st": 0,
+		"wave": idx % 3, "lo": r[0], "hi": r[1], "ph": 0.0, "ph2": 0.0, "phs": 0.0, "inc": 0.0, "env": 0.0, "st": 0,
 		"t": randf_range(1.0, 9.0), "atk": randf_range(2.5, 5.0), "hold": randf_range(2.0, 6.0),
 		"rel": randf_range(4.0, 8.0), "wmin": 14.0, "wmax": 42.0,
 		"prob": randf_range(0.4, 0.8), "amp": randf_range(0.10, 0.16),
+		"det": 0.003 + 0.0015 * float(idx), "pan": pans[idx], "lpa": lpas[idx], "lpf": 0.0, "sub": idx == 0,
 	}
 
 func set_enabled(on: bool) -> void:
@@ -136,30 +139,60 @@ func _fill(buf: PackedVector2Array, frames: int) -> void:
 		if v.env <= 0.0001:
 			continue
 		var ph: float = v.ph
+		var ph2: float = v.ph2
+		var phs: float = v.phs
 		var inc: float = v.inc
+		var inc2: float = inc * (1.0 + float(v.det))   # chorus : 2e oscillateur légèrement désaccordé
 		var env: float = v.env
 		var amp: float = v.amp
 		var wave: int = int(v.wave)
+		var lpf: float = v.lpf
+		var lpa: float = float(v.lpa)
+		var pan: float = float(v.pan)
+		var lg: float = sqrt(0.5 * (1.0 - pan)) * 1.4142   # panoramique équi-puissance (centré = niveau d'origine)
+		var rg: float = sqrt(0.5 * (1.0 + pan)) * 1.4142
+		var is_sub: bool = v.sub
 		for i in frames:
 			ph += inc
 			if ph >= TAU:
 				ph -= TAU
-			var s := sin(ph)
+			ph2 += inc2
+			if ph2 >= TAU:
+				ph2 -= TAU
+			var s1 := sin(ph)
+			var s2 := sin(ph2)
 			if wave == 1:
-				s = 4.0 * absf(ph / TAU - 0.5) - 1.0
+				s1 = 4.0 * absf(ph / TAU - 0.5) - 1.0
+				s2 = 4.0 * absf(ph2 / TAU - 0.5) - 1.0
 			elif wave == 2:
-				s = (ph / PI - 1.0) * 0.5
-			var val := s * env * amp
-			buf[i] = buf[i] + Vector2(val, val)
+				s1 = (ph / PI - 1.0) * 0.5
+				s2 = (ph2 / PI - 1.0) * 0.5
+			var raw := s1 * 0.55 + s2 * 0.45          # nappe ample (battements doux du désaccord)
+			lpf += lpa * (raw - lpf)                   # passe-bas 1-pôle => chaleur (dompte le saw cru)
+			var val := lpf * env * amp
+			if is_sub:
+				phs += inc * 0.5                       # sous-octave (corps grave sous la voix basse)
+				if phs >= TAU:
+					phs -= TAU
+				val += sin(phs) * env * amp * 0.5
+			buf[i] = buf[i] + Vector2(val * lg, val * rg)
 		v.ph = ph
+		v.ph2 = ph2
+		v.phs = phs
+		v.lpf = lpf
 	if float(_disc.env) > 0.0001:
 		var ph: float = _disc.ph
+		var ph2: float = _disc.get("ph2", 0.0)
 		var dinc: float = _disc.inc
 		var denv: float = _disc.env
 		for i in frames:
 			ph += dinc
 			if ph >= TAU:
 				ph -= TAU
-			var val := sin(ph) * denv * 0.12
+			ph2 += dinc * 2.003                        # octave + léger désaccord => scintillement « découverte »
+			if ph2 >= TAU:
+				ph2 -= TAU
+			var val := (sin(ph) * 0.72 + sin(ph2) * 0.28) * denv * 0.12
 			buf[i] = buf[i] + Vector2(val, val)
 		_disc.ph = ph
+		_disc.ph2 = ph2

@@ -77,13 +77,16 @@ var _lamp_prev := false  # front montant de la touche L (bureau)
 # Combat OPT-IN (mode FPS VR) : armes équipables (revolver + plasma). Dégainé => zéro effet (contemplatif).
 var _revolver             # Blaster.gd configuré en revolver « blaster » (cyan)
 var _plasma               # Blaster.gd configuré en fusil à plasma (vert, zoom avancé)
-var _blaster              # arme ACTIVE (= _revolver ou _plasma ; null = dégainé)
+var _grenade              # Blaster.gd en mode PROJECTILE : lance-grenades (explosif, dégâts de zone)
+var _blaster              # arme ACTIVE (= _revolver / _plasma / _grenade ; null = dégainé)
+var _plasma_scope         # ScopeView.gd : lunette VR (zoom optique SubViewport) montée sur le plasma
 var _armed := false       # une arme est équipée
 var _fire_cd := 0.0       # cooldown de tir
 var _arm_prev := false    # front montant touche B (revolver)
 var _plasma_prev := false # front montant touche V (plasma)
+var _grenade_prev := false # front montant touche N (lance-grenades)
 var _shield               # Shield.gd : bouclier d'énergie main gauche (déployé avec le blaster)
-const SHIELD_BLOCK_RADIUS := 0.5   # m : rayon d'interception d'un bolt par le bouclier
+const SHIELD_BLOCK_RADIUS := 0.62   # m : rayon d'interception d'un bolt par le bouclier (suit la taille du bouclier)
 const HP_MAX := 100.0
 var _hp := HP_MAX         # PV joueur (combat opt-in) ; restauré à plein au (ré)équipement
 var _hurt_t := 0.0        # minuterie de flash d'encaissement (s)
@@ -92,9 +95,15 @@ var _dead := false        # éliminé : locomotion gelée le temps de la réappa
 var _respawn_t := 0.0     # compte à rebours de réapparition (s)
 var _combat_overlay       # CombatOverlay.gd : voile rouge tête-bloquée (flash/mort/PV bas), VR + bureau
 var _hit_indicator        # HitIndicator.gd : flèche directionnelle « d'où vient le tir » (VR + bureau)
+var _combat_readout       # CombatReadout.gd : lecture VAGUE/PV/Score tête-bloquée (VR — le HUD plat est masqué en XR)
 var _hit_dir := Vector3.ZERO   # direction monde du dernier tir encaissé (vers le tireur)
 var _hit_dir_t := 0.0     # minuterie d'affichage de la flèche directionnelle (s)
 var _heal_t := 0.0        # minuterie du pulse de soin vert (s)
+var _dmg_mult := 1.0      # x dégâts (améliorations ramassées, portée RUN)
+var _firerate_mult := 1.0 # x cadence de tir (améliorations)
+var _overshield := 0.0    # PV de bouclier en sus (améliorations), absorbés avant les PV
+var _pickup_msg := ""     # annonce brève de ramassage (affichée sur le readout)
+var _pickup_msg_t := 0.0  # minuterie de l'annonce de ramassage (s)
 var _stuck_t := 0.0   # anti-blocage : temps passé à "vouloir marcher sans avancer" (enfoncé/coincé)
 # Retour haptique XR (no-op en bureau) — état de suivi des différents pulses.
 var _step_foot := 1      # alterne le tic de foulée gauche/droite
@@ -157,6 +166,9 @@ func _ready() -> void:
 	# Indicateur directionnel « d'où vient le tir » (flèche tête-bloquée) — VR + bureau.
 	_hit_indicator = preload("res://scripts/HitIndicator.gd").new()
 	add_child(_hit_indicator)
+	# Lecture combat tête-bloquée (VR) : VAGUE / PV / Score toujours visible pendant le combat.
+	_combat_readout = preload("res://scripts/CombatReadout.gd").new()
+	add_child(_combat_readout)
 	# Lampe nocturne : spot orientable, éteint par défaut. Suit la caméra (bureau) ou la main droite (XR).
 	_lamp = SpotLight3D.new()
 	_lamp.light_color = Color(1.0, 0.96, 0.85)
@@ -184,8 +196,37 @@ func _ready() -> void:
 	_plasma.zoom_fov = 38.0          # zoom AVANCÉ (bureau)
 	_plasma.dmg = 2.0
 	_plasma.dmg_charged = 4.0
+	# Ressenti renforcé : bolt visuel qui voyage, gros flash de bouche, recul + haptique appuyés.
+	_plasma.bolt_travel = true
+	_plasma.bolt_speed = 130.0
+	_plasma.muzzle_energy = 10.0
+	_plasma.recoil_kick = 0.045
+	_plasma.recoil_pitch = 13.0
+	_plasma.fire_haptic = 0.75
+	_plasma.fire_haptic_ads = 0.95
+	_plasma.vest_recoil = 0.7         # recul gilet moyen (arme à énergie)
 	_plasma.visible = false
 	add_child(_plasma)
+	# Lance-grenades : Blaster en mode PROJECTILE (balistique + explosion de zone). Canon +Z comme les autres.
+	_grenade = preload("res://scripts/Blaster.gd").new()
+	_grenade.weapon_name = "Grenade"
+	_grenade.model_path = "res://models/grenade_launcher.glb"
+	_grenade.model_length = 0.40
+	_grenade.muzzle_up_frac = 0.06
+	_grenade.bolt_color = Color(1.0, 0.6, 0.15)       # orange explosif
+	_grenade.charged_color = Color(1.0, 0.82, 0.3)
+	_grenade.fire_interval = 0.9                       # arme lourde : cadence lente
+	_grenade.fire_interval_ads = 1.1
+	_grenade.zoom_fov = 8.0
+	_grenade.projectile_mode = true
+	_grenade.grenade_speed = 26.0
+	_grenade.grenade_gravity = 22.0
+	_grenade.grenade_fuse = 3.0
+	_grenade.grenade_damage = 5.0
+	_grenade.grenade_blast = 6.0
+	_grenade.vest_recoil = 1.0         # recul gilet lourd (lance-grenades)
+	_grenade.visible = false
+	add_child(_grenade)
 	_blaster = null
 	# Bouclier d'énergie main gauche (déployé avec le blaster).
 	_shield = preload("res://scripts/Shield.gd").new()
@@ -244,10 +285,14 @@ func exit() -> void:
 		_lamp.visible = false
 	_armed = false
 	_blaster = null
-	for g in [_revolver, _plasma]:
+	for g in [_revolver, _plasma, _grenade]:
 		if g:
 			g.visible = false
 			_attach_weapon_to(g, self, Transform3D.IDENTITY)
+	if _plasma_scope:
+		_plasma_scope.set_active(false)   # coupe le rendu lunette (sinon le SubViewport continuerait de rendre)
+	if _plasma:
+		_plasma.sight_enabled = true
 	if _shield:
 		_shield.visible = false
 		_attach_weapon_to(_shield, self, Transform3D.IDENTITY)
@@ -258,6 +303,8 @@ func exit() -> void:
 		_vignette.clear()   # sinon la vignette resterait figée à l'écran hors-surface
 	if _combat_overlay:
 		_combat_overlay.clear()
+	if _combat_readout:
+		_combat_readout.clear()
 	_dead = false
 	_hp = HP_MAX
 	_hurt_t = 0.0
@@ -292,9 +339,14 @@ func toggle_plasma() -> bool:
 	_equip(null if _blaster == _plasma else _plasma)
 	return _armed
 
+# Équipe / dégaine le lance-grenades (montre XR / touche N bureau).
+func toggle_grenade() -> bool:
+	_equip(null if _blaster == _grenade else _grenade)
+	return _armed
+
 # Sort l'arme `w` (ou null = dégainer) : range les deux armes, attache la nouvelle à la main, montre le bouclier.
 func _equip(w) -> void:
-	for g in [_revolver, _plasma]:
+	for g in [_revolver, _plasma, _grenade]:
 		if g:
 			g.visible = false
 			_attach_weapon_to(g, self, Transform3D.IDENTITY)
@@ -306,6 +358,18 @@ func _equip(w) -> void:
 		_armed = true
 		w.visible = true
 		_attach_weapon_to(w, _weapon_target(), _weapon_offset())
+		AudioEngine.warmup_combat()   # pré-génère les WAV de combat => pas de hitch au 1er tir/impact/vague
+		# Lunette VR : créée à la 1re sortie du plasma (monde prêt), montée sur l'arme (suit son parentage).
+		if w == _plasma and _plasma_scope == null:
+			_plasma_scope = preload("res://scripts/ScopeView.gd").new()
+			_plasma.add_child(_plasma_scope)
+			_plasma_scope.position = Vector3(0.0, 0.055, 0.05)   # au-dessus/arrière du canon, verre vers l'œil
+			_plasma_scope.setup(get_world_3d(), _plasma.bolt_color)
+	# Lunette éteinte tant qu'on n'est pas plasma+visée (rallumée par _update_weapon) ; réticule flottant rétabli.
+	if _plasma:
+		_plasma.sight_enabled = true
+	if _plasma_scope and _blaster != _plasma:
+		_plasma_scope.set_active(false)
 	# Combat opt-in : (ré)équiper restaure les PV pleins (+ brève grâce) ; dégainer remet l'état à zéro.
 	_hp = HP_MAX
 	_dead = false
@@ -313,6 +377,7 @@ func _equip(w) -> void:
 	_respawn_t = 0.0
 	_invuln_t = 1.5 if _armed else 0.0
 	GameState.combat_active = _armed
+	_reset_buffs()   # améliorations ramassées = portée RUN (réinit. à chaque (ré)équipement / dégaine)
 	GameState.combat_hp = _hp
 	GameState.combat_hp_max = HP_MAX
 	GameState.combat_dead = false
@@ -346,6 +411,12 @@ func active_weapon_name() -> String:
 func enemy_hit(amount: float = 9.0, from_dir: Vector3 = Vector3.ZERO) -> void:
 	if _dead or _invuln_t > 0.0:
 		return
+	# Bouclier en sus (améliorations ramassées) : absorbe d'abord les dégâts.
+	if _overshield > 0.0:
+		var absorb := minf(_overshield, amount)
+		_overshield -= absorb
+		amount -= absorb
+		GameState.combat_overshield = _overshield
 	_hp = maxf(_hp - amount, 0.0)
 	_hurt_t = 0.5
 	if from_dir.length() > 0.001:
@@ -353,7 +424,12 @@ func enemy_hit(amount: float = 9.0, from_dir: Vector3 = Vector3.ZERO) -> void:
 		_hit_dir_t = 1.3
 	GameState.combat_hp = _hp
 	_haptic(0.8, 0.18, 0.0, 0)
-	BHaptics.landing(0.7)
+	# Gilet X40 : encaissement DIRECTIONNEL — la secousse part de la face/du côté d'où vient le tir.
+	var cam = get_active_camera()
+	var ldir := Vector3(0.0, 0.0, -1.0)
+	if cam and from_dir.length() > 0.001:
+		ldir = cam.global_transform.basis.inverse() * from_dir.normalized()
+	BHaptics.damage_hit(ldir, clampf(amount / 12.0, 0.25, 1.0))
 	AudioEngine.play_impact(get_active_camera().global_position, 0.4)
 	if _hp <= 0.0:
 		_die_combat()
@@ -366,11 +442,60 @@ func heal(amount: float) -> void:
 	GameState.combat_hp = _hp
 	_heal_t = 0.6
 	_haptic(0.25, 0.1, 0.0, 0)
+	BHaptics.heal_pulse(clampf(amount / 25.0, 0.0, 1.0))   # gilet : nappe douce et chaude qui monte
 
 # Confirmation de destruction d'un drone (appelée par WaveManager) : tic brillant + pulse manette droite.
 func on_kill() -> void:
 	AudioEngine.play_hit_confirm(true)
 	_haptic(0.55, 0.09, 0.0, 1)
+	BHaptics.kill_confirm()   # gilet : petit tap sec mi-poitrine
+
+# Ramassage d'une amélioration lâchée par un drone abattu (appelé par Pickup). Effet de PORTÉE RUN (réinit. à
+# l'équipement / la mort) + juice (son + haptique + gilet + flash vert + annonce brève sur le readout).
+func apply_pickup(kind: int) -> void:
+	if _dead or not _armed:
+		return
+	match kind:
+		0:
+			_hp = minf(_hp + 35.0, HP_MAX)
+			GameState.combat_hp = _hp
+			_pickup_msg = "+VIE"
+		1:
+			_dmg_mult = minf(_dmg_mult + 0.25, 3.0)
+			_pickup_msg = "DGT x%.2f" % _dmg_mult
+		2:
+			_firerate_mult = minf(_firerate_mult + 0.20, 2.5)
+			_pickup_msg = "CAD x%.2f" % _firerate_mult
+		3:
+			_overshield = minf(_overshield + 25.0, 75.0)
+			_pickup_msg = "BOUCLIER +25"
+	_pickup_msg_t = 1.8
+	GameState.combat_overshield = _overshield
+	GameState.combat_dmg_mult = _dmg_mult
+	GameState.combat_firerate_mult = _firerate_mult
+	AudioEngine.play_hit_confirm(true)   # carillon montant de récompense
+	_haptic(0.5, 0.12, 0.0, 1)
+	BHaptics.heal_pulse(0.55)
+	_heal_t = 0.6   # réutilise le pulse vert de la surcouche comme « flash positif »
+
+# Suffixe compact des améliorations actives (pour le readout). Vide si aucune.
+func _buff_suffix() -> String:
+	var s := ""
+	if _dmg_mult > 1.001:
+		s += "DGT x%.1f  " % _dmg_mult
+	if _firerate_mult > 1.001:
+		s += "CAD x%.1f" % _firerate_mult
+	return s.strip_edges()
+
+# Réinitialise les améliorations ramassées (portée RUN) : à l'équipement/dégaine et à la réapparition.
+func _reset_buffs() -> void:
+	_dmg_mult = 1.0
+	_firerate_mult = 1.0
+	_overshield = 0.0
+	_pickup_msg_t = 0.0
+	GameState.combat_overshield = 0.0
+	GameState.combat_dmg_mult = 1.0
+	GameState.combat_firerate_mult = 1.0
 
 # Le bouclier intercepte-t-il un projectile en `world_pos` ? (déployé, dans le rayon, côté face avant.)
 # Si OUI : feedback (haptique gauche + clink + étincelle) puis retourne true => le bolt meurt sans dégâts.
@@ -385,7 +510,7 @@ func shield_intercept(world_pos: Vector3) -> bool:
 	if d.dot(fwd) < -0.05:                 # bolt déjà passé derrière le bouclier => non bloqué
 		return false
 	_haptic(0.7, 0.13, 0.0, -1)            # pulse main gauche (bras du bouclier)
-	BHaptics.landing(0.45)
+	BHaptics.shield_block()                # gilet : buzz poitrine GAUCHE (côté bouclier)
 	AudioEngine.play_impact(world_pos, 0.3)
 	_spawn_block_spark(world_pos)
 	if _shield.has_method("flash"):
@@ -413,7 +538,7 @@ func _die_combat() -> void:
 	GameState.combat_hp = 0.0
 	GameState.combat_dead = true
 	_haptic(1.0, 0.45, 0.0, 0)
-	BHaptics.landing(1.0)
+	BHaptics.combat_death()   # gilet : gros choc plein gilet (avant + arrière)
 	AudioEngine.play_impact(get_active_camera().global_position, 1.0)
 
 func _respawn() -> void:
@@ -423,6 +548,7 @@ func _respawn() -> void:
 	velocity = Vector3.ZERO
 	GameState.combat_hp = _hp
 	GameState.combat_dead = false
+	_reset_buffs()   # la mort termine le run => améliorations remises à zéro
 	_haptic(0.4, 0.2, 0.0, 0)
 
 # Minuteries combat + miroir vers GameState + pilotage de la surcouche. Retourne true si le joueur est mort
@@ -436,6 +562,8 @@ func _update_combat(delta: float) -> bool:
 		_heal_t = maxf(_heal_t - delta, 0.0)
 	if _hit_dir_t > 0.0:
 		_hit_dir_t = maxf(_hit_dir_t - delta, 0.0)
+	if _pickup_msg_t > 0.0:
+		_pickup_msg_t = maxf(_pickup_msg_t - delta, 0.0)
 	GameState.combat_active = _armed
 	GameState.combat_hp = _hp
 	GameState.combat_hp_max = HP_MAX
@@ -455,6 +583,22 @@ func _update_combat(delta: float) -> bool:
 	if _hit_indicator:
 		var dir_t := (_hit_dir_t / 1.3) if (_armed and not _dead) else 0.0
 		_hit_indicator.place(cam, _hit_dir, dir_t)
+	if _combat_readout:
+		var rtxt := ""
+		if _armed:
+			if _dead:
+				rtxt = "ÉLIMINÉ"
+			else:
+				var pv := "PV %d" % int(round(_hp))
+				if _overshield > 0.0:
+					pv += "+%d" % int(round(_overshield))   # PV de bouclier en sus
+				rtxt = "VAGUE %d     %s     Score %d" % [GameState.combat_wave, pv, GameState.combat_score]
+				var bf := _buff_suffix()
+				if bf != "":
+					rtxt += "     " + bf
+				if _pickup_msg_t > 0.0:
+					rtxt += "     " + _pickup_msg   # annonce brève du dernier ramassage
+		_combat_readout.place(cam, _armed and _xr, rtxt)   # VR seulement (le HUD plat couvre le bureau)
 	return _dead
 
 # Parente l'arme/bouclier à un nœud (manette/caméra) avec un offset local => rigidement solidaire (pas de
@@ -616,13 +760,28 @@ func _update_weapon(delta: float) -> void:
 	else:
 		firing = Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT)
 	if firing and _fire_cd <= 0.0:
-		_fire_cd = _blaster.fire_interval_ads if aiming else _blaster.fire_interval
+		_fire_cd = (_blaster.fire_interval_ads if aiming else _blaster.fire_interval) / maxf(_firerate_mult, 0.05)
 		var shot = _blaster.fire([get_rid()], aiming)   # hitscan (retour { hit,pos,collider,charged })
 		if shot.hit and shot.collider != null and shot.collider.has_method("take_damage"):
-			shot.collider.take_damage(_blaster.dmg_charged if aiming else _blaster.dmg, shot.pos)   # drone touché
+			shot.collider.take_damage((_blaster.dmg_charged if aiming else _blaster.dmg) * _dmg_mult, shot.pos)   # drone touché
 			AudioEngine.play_hit_confirm(false)   # tic de confirmation au toucher
-		_haptic(0.6 if aiming else 0.45, 0.08 if aiming else 0.06, 0.0, 1)
-		AudioEngine.play_blaster(_blaster.muzzle_world())
+		_haptic(_blaster.fire_haptic_ads if aiming else _blaster.fire_haptic, 0.09 if aiming else 0.06, 0.0, 1)
+		BHaptics.weapon_recoil(_blaster.vest_recoil)   # gilet : « coup » de recul dans la poitrine (∝ poids arme)
+		if _blaster.projectile_mode:
+			AudioEngine.play_grenade_launch(_blaster.muzzle_world())
+		elif _blaster.weapon_name == "Plasma":
+			AudioEngine.play_plasma(_blaster.muzzle_world(), aiming)
+		else:
+			AudioEngine.play_blaster(_blaster.muzzle_world())
+	# Lunette VR plasma : zoom optique RÉEL (SubViewport-loupe) — UNIQUEMENT plasma + visée (grip) en XR. Ne
+	# rend qu'en visée (perf), le bureau garde son zoom de FOV caméra.
+	if _plasma_scope:
+		var scope_on: bool = _xr and _blaster == _plasma and aiming
+		_plasma_scope.set_active(scope_on)
+		_plasma.sight_enabled = not scope_on   # la lunette remplace le réticule/laser flottants
+		if scope_on:
+			var mt: Transform3D = _plasma.aim_transform()
+			_plasma_scope.update_view(mt.origin, -mt.basis.z, mt.basis.y)
 
 # Équipements : touche F / bouton B (XR) = armure Iron Man (vol libre invisible) ; touche E / bouton A
 # (XR) = parapente. EXCLUSIFS : enfiler l'armure replie le parapente ; le parapente est inactif en vol.
@@ -649,6 +808,10 @@ func _update_equipment() -> void:
 		if plasma_pressed and not _plasma_prev:
 			toggle_plasma()
 		_plasma_prev = plasma_pressed
+		var grenade_pressed := Input.is_physical_key_pressed(KEY_N)   # lance-grenades
+		if grenade_pressed and not _grenade_prev:
+			toggle_grenade()
+		_grenade_prev = grenade_pressed
 	if not _flying and not _swimming:
 		_update_deploy()   # parapente (E) — désactivé pendant le vol Iron Man ET la nage (pas de voile sous l'eau)
 

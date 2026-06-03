@@ -10,7 +10,9 @@ const SR := 44100.0
 var _pb: AudioStreamGeneratorPlayback
 var _buf := PackedVector2Array()
 var _lp: Biquad
+var _lpR: Biquad          # 2e passe-bas indépendant (droite) => clapotis large
 var _brown := 0.0
+var _brownR := 0.0
 var _rng := RandomNumberGenerator.new()
 var _imp: Envelope
 var _imp_timer := 1.0
@@ -29,6 +31,8 @@ func _ready() -> void:
 	attenuation_model = AudioStreamPlayer3D.ATTENUATION_INVERSE_DISTANCE
 	_lp = Biquad.new(SR)
 	_lp.set_params(Biquad.Type.LOWPASS, 950.0, 0.7)
+	_lpR = Biquad.new(SR)
+	_lpR.set_params(Biquad.Type.LOWPASS, 950.0, 0.7)
 	_imp = Envelope.new(SR)
 	_imp.set_ar(0.01, 0.4)
 	_rng.randomize()
@@ -63,10 +67,14 @@ func _process(dt: float) -> void:
 	for i in n:
 		_brown += (_rng.randf() * 2.0 - 1.0) * 0.02
 		_brown = clampf(_brown, -1.0, 1.0)
-		var body := _lp.process(_brown * 3.2)
+		_brownR += (_rng.randf() * 2.0 - 1.0) * 0.02
+		_brownR = clampf(_brownR, -1.0, 1.0)
+		var bodyL := _lp.process(_brown * 3.2)
+		var bodyR := _lpR.process(_brownR * 3.2)   # corps décorrélé L/R => largeur
 		var imp := 0.0
 		if _imp.is_active():
-			imp = _imp.ar() * (_rng.randf() * 2.0 - 1.0) * 0.5
-		var s := (body * 0.5 + imp) * gg * 0.5
-		_buf[i] = Vector2(s, s)
+			imp = _imp.ar() * (_rng.randf() * 2.0 - 1.0) * 0.5   # éclaboussure (centrée)
+		var sL := (bodyL * 0.5 + imp) * gg * 0.5
+		var sR := (bodyR * 0.5 + imp) * gg * 0.5
+		_buf[i] = Vector2(sL, sR)
 	_pb.push_buffer(_buf)

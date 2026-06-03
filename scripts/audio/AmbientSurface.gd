@@ -11,12 +11,15 @@ var _inc1 := 0.0
 var _inc2 := 0.0
 var _brown := 0.0
 var _lp := 0.0
+var _brownR := 0.0            # bruit DROITE indépendant => décorrélation = largeur stéréo
+var _lpR := 0.0
 var _bph := 0.0
 var _binc := 0.0
 var _rng := RandomNumberGenerator.new()
 
 var _base_freq := 52.0
-var _wind_bp: Biquad          # passe-bande qui colore le vent
+var _wind_bp: Biquad          # passe-bande qui colore le vent (canal gauche)
+var _wind_bp_R: Biquad        # 2e passe-bande INDÉPENDANT (canal droit) => vent large
 var _wind_center := 520.0
 var _wind_amt := 0.2          # cible (WeatherSystem.wind)
 var _wind_cur := 0.0          # lissé
@@ -28,6 +31,8 @@ func _setup() -> void:
 	_rng.randomize()
 	_wind_bp = Biquad.new(SR)
 	_wind_bp.set_params(Biquad.Type.BANDPASS, _wind_center, 1.1)
+	_wind_bp_R = Biquad.new(SR)
+	_wind_bp_R.set_params(Biquad.Type.BANDPASS, _wind_center, 1.1)
 	_recompute()
 
 # Palette de surface (drone + couleur du vent), déterministe par seed planète.
@@ -38,6 +43,8 @@ func configure(seed_local: int) -> void:
 	_wind_center = rng.randf_range(360.0, 900.0)   # « voix » du vent propre à la planète
 	if _wind_bp:
 		_wind_bp.set_params(Biquad.Type.BANDPASS, _wind_center, 1.1)
+	if _wind_bp_R:
+		_wind_bp_R.set_params(Biquad.Type.BANDPASS, _wind_center, 1.1)
 	_recompute()
 
 func set_wind(w: float) -> void:
@@ -66,6 +73,8 @@ func _fill(buf: PackedVector2Array, frames: int) -> void:
 	var ph2 := _ph2
 	var brown := _brown
 	var lp := _lp
+	var brownR := _brownR
+	var lpR := _lpR
 	var bph := _bph
 	for i in frames:
 		ph1 += _inc1
@@ -78,17 +87,24 @@ func _fill(buf: PackedVector2Array, frames: int) -> void:
 		if bph >= TAU:
 			bph -= TAU
 		var breath := 0.74 + 0.14 * sin(bph)
-		var drone := (sin(ph1) * 0.5 + sin(ph2) * 0.2) * breath
-		# Vent : bruit blanc -> passe-bande -> amplitude (rafales lentes via le LFO de respiration).
+		var center := (sin(ph1) * 0.5 + sin(ph2) * 0.2) * breath * 0.28   # drone CENTRÉ (basse solide)
+		# Vent : DEUX bruits passe-bande INDÉPENDANTS L/R => souffle large et enveloppant.
 		var gust := 0.8 + 0.2 * sin(bph * 1.7)
-		var wind := _wind_bp.process(_rng.randf() * 2.0 - 1.0) * windg * gust
+		var windL := _wind_bp.process(_rng.randf() * 2.0 - 1.0) * windg * gust
+		var windR := _wind_bp_R.process(_rng.randf() * 2.0 - 1.0) * windg * gust
 		brown += (_rng.randf() * 2.0 - 1.0) * 0.02
 		brown = clampf(brown, -1.0, 1.0)
 		lp += (brown * 3.2 - lp) * 0.02
-		var s := (drone * 0.28 + lp * 0.05 + wind * 0.5) * g
-		buf[i] = Vector2(s, s)
+		brownR += (_rng.randf() * 2.0 - 1.0) * 0.02
+		brownR = clampf(brownR, -1.0, 1.0)
+		lpR += (brownR * 3.2 - lpR) * 0.02
+		var sL := (center + lp * 0.05 + windL * 0.5) * g
+		var sR := (center + lpR * 0.05 + windR * 0.5) * g
+		buf[i] = Vector2(sL, sR)
 	_ph1 = ph1
 	_ph2 = ph2
 	_brown = brown
 	_lp = lp
+	_brownR = brownR
+	_lpR = lpR
 	_bph = bph
