@@ -24,6 +24,7 @@ var _sky3d: Sky3D   # addon Sky3D : dôme de ciel + nuages volumétriques (ciel 
 var _starfield: Starfield
 var _fireflies   # lucioles/spores nocturnes (Fireflies.gd) — vie ambiante autour du joueur la nuit
 var _biolum := 0.0   # force de bioluminescence de la planète courante (0 = pas de flore luminescente)
+var _flock   # nuée d'oiseaux (Flock.gd) — boids dans le ciel le jour
 var _rain: RainEffect
 var _lightning: LightningEffect
 var _surface_moons: SurfaceMoons   # phase 14 : lunes dans le ciel
@@ -67,6 +68,9 @@ func _ready() -> void:
 	# Lucioles/spores nocturnes (vie ambiante) : nuée additive qui dérive autour du joueur la nuit.
 	_fireflies = preload("res://scripts/Fireflies.gd").new()
 	add_child(_fireflies)
+	# Nuée d'oiseaux (vie ambiante) : boids dans le ciel, le jour.
+	_flock = preload("res://scripts/Flock.gd").new()
+	add_child(_flock)
 
 # Met en place le terrain streamé + ciel + brouillard pour une planète et un point
 # d'atterrissage donnés, place le joueur au spawn et le gèle jusqu'à sol prêt.
@@ -289,4 +293,6 @@ func _process(delta: float) -> void:
 	if _fireflies:
 		_fireflies.update(_player.global_position, night, delta)
 	RenderingServer.global_shader_parameter_set("biolum_glow", _biolum * night)   # la flore luminescente émet la nuit
+	if _flock:
+		_flock.update(_player.global_position, 1.0 - night, delta)   # oiseaux le JOUR (complète les lucioles de nuit)
 	_update_ambient_haptics(delta)
