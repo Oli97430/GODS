@@ -39,7 +39,7 @@ func _ready() -> void:
 	_vp = SubViewport.new()
 	_vp.size = VP_SIZE
 	_vp.transparent_bg = true
-	_vp.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	_vp.render_target_update_mode = SubViewport.UPDATE_DISABLED   # rendu UNIQUEMENT panneau ouvert (cf. _set_open) — pas de gaspillage GPU fermé
 	add_child(_vp)
 	_build_ui()
 	# Quad affichant la texture du SubViewport. top_level => ancré en MONDE devant la caméra à l'ouverture.
@@ -136,6 +136,7 @@ func _set_open(v: bool) -> void:
 	_open = v
 	_screen.visible = v
 	GameState.options_open = v
+	_vp.render_target_update_mode = SubViewport.UPDATE_ALWAYS if v else SubViewport.UPDATE_DISABLED  # rendu seulement ouvert
 	if v:
 		if _status:
 			_status.text = OptionsUI.status_text()
@@ -145,6 +146,8 @@ func _set_open(v: bool) -> void:
 			var fwd := -c.basis.z
 			var pos := c.origin + Vector3(fwd.x, fwd.y * 0.4, fwd.z).normalized() * OPEN_DIST
 			_screen.global_transform = _face(pos, c.origin)
+	else:
+		_ui_pressed = false   # pas de relâche fantôme à la réouverture si on ferme en plein appui
 
 # Base orientée : +Z (face de la texture) vers la caméra ; +Y ~ monde haut.
 func _face(pos: Vector3, cam_pos: Vector3) -> Transform3D:
