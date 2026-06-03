@@ -22,6 +22,7 @@ var _surface_env: Environment
 var _sky: SkyManager
 var _sky3d: Sky3D   # addon Sky3D : dôme de ciel + nuages volumétriques (ciel de surface)
 var _starfield: Starfield
+var _fireflies   # lucioles/spores nocturnes (Fireflies.gd) — vie ambiante autour du joueur la nuit
 var _rain: RainEffect
 var _lightning: LightningEffect
 var _surface_moons: SurfaceMoons   # phase 14 : lunes dans le ciel
@@ -62,6 +63,9 @@ func _ready() -> void:
 	_rain = RainEffect.new()
 	add_child(_rain)
 	_rain.setup(_player)
+	# Lucioles/spores nocturnes (vie ambiante) : nuée additive qui dérive autour du joueur la nuit.
+	_fireflies = preload("res://scripts/Fireflies.gd").new()
+	add_child(_fireflies)
 
 # Met en place le terrain streamé + ciel + brouillard pour une planète et un point
 # d'atterrissage donnés, place le joueur au spawn et le gèle jusqu'à sol prêt.
@@ -275,4 +279,7 @@ func _process(delta: float) -> void:
 				_player.spawn_at(Vector3(p.x, _chunks.ground_height_at(p) + 1.0, p.z))
 			_player.set_frozen(false)
 			_waiting_ground = false
+	# Lucioles nocturnes (vie ambiante) : nuée ∝ nuit autour du joueur (même seuil que SkyManager).
+	if _fireflies:
+		_fireflies.update(_player.global_position, 1.0 - smoothstep(-0.05, 0.18, sun_altitude()), delta)
 	_update_ambient_haptics(delta)
