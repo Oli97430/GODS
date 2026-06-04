@@ -65,6 +65,10 @@ var _lamp_button: Button   # lampe nocturne du joueur (univers sous-marin / nuit
 var _weapon_button: Button   # revolver du joueur (mode combat opt-in)
 var _plasma_button: Button   # fusil à plasma du joueur
 var _grenade_button: Button  # lance-grenades du joueur
+var _coop_label: Label       # coop (CP4) : statut réseau
+var _coop_host_btn: Button
+var _coop_join_btn: Button
+var _coop_leave_btn: Button
 var _speed_idx := 1   # démarre à ×1 (cohérent avec le défaut TimeOfDay = 1.0 ; presets : pause/1/10/60/600)
 var _skip_idx := 0
 
@@ -184,6 +188,18 @@ func _build_ui() -> void:
 	_grenade_button.clip_text = true
 	_grenade_button.pressed.connect(_on_grenade)
 	weapon_row.add_child(_grenade_button)
+
+	# COOP (CP4) : statut + héberger / rejoindre (IP = Settings.coop_ip, réglée au bureau) / quitter.
+	_coop_label = _add_label(vbox, "Coop : hors-ligne", 14, Color(0.62, 0.80, 1.0))
+	var coop_row := HBoxContainer.new()
+	coop_row.add_theme_constant_override("separation", 6)
+	vbox.add_child(coop_row)
+	_coop_host_btn = _mk_coop_button("Héberger", _on_coop_host)
+	coop_row.add_child(_coop_host_btn)
+	_coop_join_btn = _mk_coop_button("Rejoindre", _on_coop_join)
+	coop_row.add_child(_coop_join_btn)
+	_coop_leave_btn = _mk_coop_button("Quitter", _on_coop_leave)
+	coop_row.add_child(_coop_leave_btn)
 
 	_action_button = Button.new()
 	_action_button.text = "—"
@@ -418,6 +434,42 @@ func _update_content() -> void:
 				_combat_label.text = "⚔ PV %d/%d  V%d  Score %d" % [int(round(GameState.combat_hp)), int(round(GameState.combat_hp_max)), GameState.combat_wave, GameState.combat_score]
 		else:
 			_combat_label.text = ""
+	_update_coop()
+
+# --- Coop (CP4) : statut + héberger/rejoindre/quitter à la montre (IP réglée au bureau via Settings.coop_ip) ---
+func _mk_coop_button(txt: String, cb: Callable) -> Button:
+	var b := Button.new()
+	b.text = txt
+	b.add_theme_font_size_override("font_size", 15)
+	b.custom_minimum_size = Vector2(0, 46)
+	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	b.clip_text = true
+	b.pressed.connect(cb)
+	return b
+
+func _update_coop() -> void:
+	if _coop_label == null:
+		return
+	if not NetworkManager.is_active():
+		_coop_label.text = "Coop : hors-ligne"
+	elif NetworkManager.is_host():
+		_coop_label.text = "Coop : HÔTE — %d invité(s)" % NetworkManager.peers().size()
+	else:
+		_coop_label.text = "Coop : invité (connecté)"
+	var active: bool = NetworkManager.is_active()
+	if _coop_host_btn:
+		_coop_host_btn.disabled = active
+		_coop_join_btn.disabled = active
+		_coop_leave_btn.disabled = not active
+
+func _on_coop_host() -> void:
+	NetworkManager.host()
+
+func _on_coop_join() -> void:
+	NetworkManager.join(Settings.coop_ip)
+
+func _on_coop_leave() -> void:
+	NetworkManager.leave()
 
 # Cache lunes/anneau par seed planète : _planet_label_text tourne CHAQUE frame où la montre est visible
 # (90×/s au casque) — sans cache, generate_moons() reconstruisait un tableau de lunes par frame.

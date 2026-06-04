@@ -256,11 +256,22 @@ func _update_ambient_haptics(delta: float) -> void:
 func get_player() -> PlayerController:
 	return _player
 
-# Atterrissage de puissance : joue la gerbe de débris + onde de choc à la position d'impact (signal joueur).
+# Atterrissage de puissance : joue la gerbe de débris + onde de choc à la position d'impact (signal joueur)
+# + laisse un CRATÈRE au sol (marque persistante là où le joueur s'écrase lourdement).
 func _on_player_impact(world_pos: Vector3, strength: float) -> void:
 	if _impact_burst:
 		_impact_burst.play(world_pos, strength)
 	AudioEngine.play_impact(world_pos, strength)   # « boom » grave d'impact (polish)
+	_spawn_landing_crater(world_pos, strength)
+
+# Cratère d'atterrissage : posé au point de sol RÉEL sous l'impact (raycast => normale de pente), taille ∝ force.
+func _spawn_landing_crater(world_pos: Vector3, strength: float) -> void:
+	var gi := ground_info(world_pos + Vector3.UP * 1.5)
+	var pos: Vector3 = gi.get("point", world_pos)
+	var nrm: Vector3 = gi.get("normal", Vector3.UP)
+	var c = preload("res://scripts/LandingCrater.gd").new()
+	c.setup(pos, nrm, strength)
+	add_child(c)
 
 # Gel anti-chute du joueur (débarquement phase 18) : on GÈLE le pilote au spawn jusqu'à ce que le
 # chunk + SA COLLISION sous lui soient prêts (sinon il traverse le sol). Levé par _process via

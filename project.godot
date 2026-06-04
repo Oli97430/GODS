@@ -23,6 +23,10 @@ WeatherSystem="*res://scripts/WeatherSystem.gd"
 AudioEngine="*res://scripts/audio/AudioEngine.gd"
 BHaptics="*res://scripts/BHaptics.gd"
 Settings="*res://scripts/Settings.gd"
+NetworkManager="*res://scripts/net/NetworkManager.gd"
+CoopSync="*res://scripts/net/CoopSync.gd"
+CoopCombat="*res://scripts/net/CoopCombat.gd"
+CoopMenu="*res://scripts/net/CoopMenu.gd"
 
 [physics]
 

@@ -164,42 +164,72 @@ static func _add_leaves(st: SurfaceTool, pos: Vector3, basis: Basis, col: Color,
 		_:
 			_leaf_blob(st, pos, col, size)
 
-# Amas rond : octaèdre légèrement aplati (8 tris). Canopée feuillue.
+# Amas de feuilles PLEIN : hexa-bipyramide (~12 tris, plus rond que l'ancien octaèdre 8 tris) avec DÉGRADÉ
+# vertical (sommet ensoleillé → dessous ombragé = profondeur, gratuit en couleurs de vertices) + léger JITTER
+# déterministe par position (canopée moins uniforme, sans RNG). Canopée feuillue.
 static func _leaf_blob(st: SurfaceTool, c: Vector3, col: Color, s: float) -> void:
-	st.set_color(col)
-	var top := c + Vector3(0, s, 0)
-	var bot := c + Vector3(0, -s * 0.55, 0)
-	var ring := [c + Vector3(s, 0, 0), c + Vector3(0, 0, s), c + Vector3(-s, 0, 0), c + Vector3(0, 0, -s)]
-	for i in 4:
+	var top_c := col.lightened(0.20)
+	var bot_c := col.darkened(0.28)
+	var h := _hash3(c)
+	var sx := s * (0.85 + 0.30 * h.x)
+	var sz := s * (0.85 + 0.30 * h.z)
+	var sy_up := s * (0.95 + 0.25 * h.y)
+	var rings := 6
+	var top := c + Vector3(0.0, sy_up, 0.0)
+	var bot := c + Vector3(0.0, -s * 0.55, 0.0)
+	var ring: Array = []
+	for i in rings:
+		var ang := TAU * float(i) / float(rings) + h.x * 0.7
+		ring.append(c + Vector3(cos(ang) * sx, s * 0.12 * (h.y - 0.5), sin(ang) * sz))
+	for i in rings:
 		var a: Vector3 = ring[i]
-		var b: Vector3 = ring[(i + 1) % 4]
-		st.add_vertex(top); st.add_vertex(a); st.add_vertex(b)
-		st.add_vertex(bot); st.add_vertex(b); st.add_vertex(a)
+		var b: Vector3 = ring[(i + 1) % rings]
+		st.set_color(top_c); st.add_vertex(top)
+		st.set_color(col); st.add_vertex(a)
+		st.set_color(col); st.add_vertex(b)
+		st.set_color(bot_c); st.add_vertex(bot)
+		st.set_color(col); st.add_vertex(b)
+		st.set_color(col); st.add_vertex(a)
 
-# Touffe d'aiguilles : petit éventail retombant le long de la branche (conifère). 4 tris fins.
+# Bruit de hash déterministe (Vector3 dans [0,1]) à partir d'une position — pour varier les amas sans RNG.
+static func _hash3(p: Vector3) -> Vector3:
+	var x := sin(p.dot(Vector3(12.9898, 78.233, 37.719))) * 43758.5453
+	var y := sin(p.dot(Vector3(39.346, 11.135, 83.155))) * 24634.6345
+	var z := sin(p.dot(Vector3(73.156, 52.235, 9.151))) * 39158.5453
+	return Vector3(x - floor(x), y - floor(y), z - floor(z))
+
+# Touffe d'aiguilles : petit éventail retombant le long de la branche (conifère). 4 tris fins, pointes éclaircies.
 static func _leaf_needle(st: SurfaceTool, c: Vector3, basis: Basis, col: Color, s: float) -> void:
-	st.set_color(col)
+	var tip_c := col.lightened(0.16)
 	var droop := (basis.y * 0.3 + Vector3.DOWN * 0.7).normalized() * s * 1.6   # retombe vers le bas
 	for d in [basis.x, basis.z, -basis.x, -basis.z]:
 		var lat: Vector3 = d * s * 0.18
-		st.add_vertex(c + lat)
-		st.add_vertex(c - lat)
-		st.add_vertex(c + droop + (d as Vector3) * s * 0.25)
+		st.set_color(col); st.add_vertex(c + lat)
+		st.set_color(col); st.add_vertex(c - lat)
+		st.set_color(tip_c); st.add_vertex(c + droop + (d as Vector3) * s * 0.25)
 
-# Fronde : bande de quads le long du heading, légèrement retombante (palmier / fougère). ~8 tris.
+# Fronde : bande de quads le long du heading, retombante (palmier / fougère). ~8 tris, dégradé base→pointe.
 static func _leaf_frond(st: SurfaceTool, c: Vector3, basis: Basis, col: Color, s: float) -> void:
-	st.set_color(col)
+	var base_c := col.darkened(0.18)
+	var tip_c := col.lightened(0.18)
 	var fwd := basis.y
 	var side := basis.x
 	var segs := 4
 	var prev := c
 	var prev_w := s * 0.34
+	var prev_c := base_c
 	for k in range(1, segs + 1):
 		var t := float(k) / float(segs)
+		var cc := base_c.lerp(tip_c, t)
 		var droop := Vector3.DOWN * t * t * s * 1.1   # retombée croissante vers la pointe
 		var p := c + fwd * (t * s * 2.2) + droop
 		var wdt := (1.0 - t) * s * 0.34
-		st.add_vertex(prev + side * prev_w); st.add_vertex(p + side * wdt); st.add_vertex(p - side * wdt)
-		st.add_vertex(prev + side * prev_w); st.add_vertex(p - side * wdt); st.add_vertex(prev - side * prev_w)
+		st.set_color(prev_c); st.add_vertex(prev + side * prev_w)
+		st.set_color(cc); st.add_vertex(p + side * wdt)
+		st.set_color(cc); st.add_vertex(p - side * wdt)
+		st.set_color(prev_c); st.add_vertex(prev + side * prev_w)
+		st.set_color(cc); st.add_vertex(p - side * wdt)
+		st.set_color(prev_c); st.add_vertex(prev - side * prev_w)
 		prev = p
 		prev_w = wdt
+		prev_c = cc

@@ -22,6 +22,14 @@ func _ready() -> void:
 	_build_multimesh()
 	print("[GalaxyView] Galaxie générée : ", data.systems.size(), " systèmes (seed=", GameState.global_seed, ").")
 
+# Régénère la galaxie pour le seed COURANT (GameState.global_seed). Coop : l'invité adopte le seed de l'hôte
+# avant de le rejoindre, pour que systèmes/planètes/surfaces soient identiques (déterminisme).
+func rebuild() -> void:
+	data = GalaxyGenerator.generate(GameState.global_seed, SYSTEM_COUNT, GALAXY_RADIUS)
+	selected_index = -1
+	_build_multimesh()
+	print("[GalaxyView] Galaxie RECONSTRUITE (seed=", GameState.global_seed, ").")
+
 # Construit le MultiMesh : un quad billboardé par instance, coloré selon le type.
 func _build_multimesh() -> void:
 	var quad := QuadMesh.new()

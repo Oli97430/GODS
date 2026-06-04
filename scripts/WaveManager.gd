@@ -7,6 +7,7 @@ const WAVE_GAP := 4.0       # s entre deux vagues (une fois la précédente nett
 const FIRST_DELAY := 2.5    # s avant la 1re vague (le temps de se préparer)
 const SPAWN_STAGGER := 0.12 # s entre deux apparitions de drone (spawn ÉCHELONNÉ => pas de pic de frame)
 const DROP_CHANCE := 0.5    # probabilité qu'un drone abattu lâche une amélioration ramassable
+const MAX_DRONES := 4       # plafond de drones SIMULTANÉS (rythme = + de PV par drone, pas + de nombre)
 
 var _player: Node3D
 var _drones: Array = []
@@ -23,6 +24,9 @@ func setup(player: Node3D) -> void:
 	_rng.randomize()
 
 func _process(delta: float) -> void:
+	# Coop : sur un INVITÉ, les vagues sont pilotées par l'HÔTE (drones répliqués via CoopCombat) => inerte ici.
+	if NetworkManager.is_active() and not NetworkManager.is_host():
+		return
 	var armed: bool = GameState.current_scale == GameState.Scale.SURFACE and _player != null \
 		and _player.has_method("is_armed") and _player.is_armed()
 	# Désarmé OU mort => on nettoie la session ; à la réapparition elle redémarre à la vague 1.
@@ -54,6 +58,8 @@ func _process(delta: float) -> void:
 			_awaiting_clear = false
 			if _player.has_method("heal"):
 				_player.heal(25.0)
+			if NetworkManager.is_active() and NetworkManager.is_host():
+				CoopCombat.host_heal_all(25.0)   # coop : soigne aussi les invités
 		_timer -= delta
 		if _timer <= 0.0:
 			_start_wave()
@@ -62,7 +68,7 @@ func _start_wave() -> void:
 	_wave += 1
 	GameState.combat_wave = _wave
 	AudioEngine.play_wave_start()   # sting « ça commence »
-	_to_spawn = 2 + _wave   # 3, 4, 5, ... drones — apparition ÉCHELONNÉE dans _process (plus de boucle synchrone)
+	_to_spawn = mini(2 + _wave, MAX_DRONES)   # 3 puis PLAFONNÉ à MAX_DRONES — apparition ÉCHELONNÉE dans _process
 	_spawn_cd = 0.0         # le 1er sort immédiatement
 	_timer = WAVE_GAP
 	_awaiting_clear = true   # cette vague nettoyée => soin
@@ -81,11 +87,23 @@ func _spawn_drone() -> void:
 	d.died.connect(_on_drone_died)
 	add_child(d)
 	_drones.append(d)
+	if NetworkManager.is_active() and NetworkManager.is_host():
+		CoopCombat.host_register_drone(d)   # coop : réplique ce drone aux invités (autorité hôte)
 
 func _on_drone_fire(from: Vector3, toward: Vector3) -> void:
+	var dmg := clampf(7.0 + float(_wave), 7.0, 16.0)   # un peu plus mordant à mesure que les vagues montent
+	# Coop : l'hôte répartit la menace entre tous les joueurs. Un bolt visant un INVITÉ est RÉPLIQUÉ (le client le
+	# fait voyager + s'auto-touche). Solo / cible = hôte : bolt local (inchangé).
+	if NetworkManager.is_active() and NetworkManager.is_host():
+		var tgt := CoopCombat.host_pick_bolt_target()
+		if not tgt.is_host:
+			CoopCombat.host_fire_bolt_at(int(tgt.id), from, tgt.head, dmg)
+			AudioEngine.play_enemy_shot(from)
+			return
+		toward = tgt.head   # cible = hôte : bolt local visant la tête de l'hôte
 	var b = preload("res://scripts/EnemyBolt.gd").new()
 	b.setup(from, toward, _player, _on_bolt_hit)
-	b.dmg = clampf(7.0 + float(_wave), 7.0, 16.0)   # un peu plus mordant à mesure que les vagues montent
+	b.dmg = dmg
 	add_child(b)
 	AudioEngine.play_enemy_shot(from)   # zap grave spatialisé => on entend d'où vient le tir
 
@@ -99,9 +117,12 @@ func _on_drone_died(pos: Vector3) -> void:
 		_player.on_kill()          # confirmation (tic brillant + haptique) côté joueur
 	# Loot : avec une chance, une amélioration ramassable tombe au point de destruction (enfant => nettoyée au _clear).
 	if _rng.randf() < DROP_CHANCE:
+		var kind := _roll_pickup_kind()
 		var p = preload("res://scripts/Pickup.gd").new()
-		p.setup(_player, _roll_pickup_kind(), pos)
+		p.setup(_player, kind, pos)
 		add_child(p)
+		if NetworkManager.is_active() and NetworkManager.is_host():
+			CoopCombat.host_register_pickup(p, kind)   # coop : réplique le butin aux invités (autorité hôte)
 
 # Tirage pondéré du type d'amélioration : soin un peu plus fréquent, puis dégâts / cadence / bouclier.
 func _roll_pickup_kind() -> int:
@@ -115,6 +136,8 @@ func _roll_pickup_kind() -> int:
 	return 3        # KIND_SHIELD
 
 func _clear() -> void:
+	if NetworkManager.is_active() and NetworkManager.is_host():
+		CoopCombat.host_clear_all()   # coop : retire les drones-fantômes chez les invités
 	_active = false
 	_awaiting_clear = false
 	_to_spawn = 0

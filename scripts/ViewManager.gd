@@ -27,6 +27,7 @@ var _current_planet_name := ""  # phase 19.5 : nom propre de la planète orbite/
 var _current_system = null      # StarSystem courant (étoiles de nuit au sol)
 var _current_system_index := -1
 var _orbit_planet_index := -1
+var _current_landing_dir := Vector3.ZERO   # point (dir unité) d'atterrissage de la surface courante (coop CP1)
 # Phase 23 : carte hydrologique de la planète courante (érosion + rivières + lacs), générée
 # OFF-THREAD au 1er accès planète, cachée tant que la planète est courante, libérée en quittant l'orbite.
 var _current_flow_map: PlanetFlowMap = null
@@ -161,6 +162,7 @@ func enter_surface(landing_dir: Vector3 = Vector3.ZERO) -> void:
 		ld = _resolve_landing(landing_dir.normalized(), _current_planet_seed, _current_flow_map)
 	else:
 		ld = _find_landing_dir(_current_planet_seed, _current_flow_map)
+	_current_landing_dir = ld   # mémorisé pour la coop (l'hôte l'envoie aux invités)
 	var star_systems := []
 	var system_pos := Vector3.ZERO
 	if _current_system != null:
@@ -345,3 +347,84 @@ func _on_flow_map_ready() -> void:
 		return   # ceinture+bretelles : ne rebâtir la sphère orbitale érodée que si on est encore en orbite
 	planet_view.apply_flow_map(_current_flow_map)   # rebâtit la sphère orbitale érodée + rivières/lacs
 	print("[ViewManager] FlowMap prête (seed=", _flow_seed, ", max_flow=", _current_flow_map.max_flow, ").")
+
+# ----------------------- COOP (multijoueur CP1 : handshake monde) -----------------------
+
+func _ready() -> void:
+	NetworkManager.peer_joined.connect(_on_net_peer_joined)
+	# Entrée DEV (test sans UI) : --auto-surface => descend direct sur (système 0, planète 0) au boot ;
+	# + --auto-arm => équipe une arme (active le combat) ~2 s après l'atterrissage.
+	var ua := OS.get_cmdline_user_args()
+	if ua.has("--auto-surface"):
+		get_tree().create_timer(0.6).timeout.connect(_dev_auto_surface.bind(ua.has("--auto-arm")))
+
+func _dev_auto_surface(auto_arm: bool) -> void:
+	goto_surface(0, 0, Vector3.ZERO)
+	if auto_arm:
+		get_tree().create_timer(2.0).timeout.connect(_dev_auto_arm)
+
+func _dev_auto_arm() -> void:
+	var p = surface_view.get_player()
+	if p and p.has_method("toggle_weapon"):
+		p.toggle_weapon()
+
+# HÔTE : un pair vient de rejoindre. Si on est en SURFACE, on lui envoie le contexte monde (seed + index
+# système + index planète + point d'atterrissage) pour qu'il atterrisse sur LA MÊME surface (déterminisme).
+func _on_net_peer_joined(id: int) -> void:
+	if NetworkManager.is_host() and GameState.current_scale == GameState.Scale.SURFACE:
+		rpc_id(id, "_rpc_world_context", GameState.global_seed, _current_system_index, _orbit_planet_index, _current_landing_dir)
+
+# INVITÉ : reçoit le contexte de l'hôte => adopte son seed (reconstruit la galaxie si différent) puis saute
+# sur la même surface. @rpc authority => seul l'hôte (id 1) peut l'appeler chez les invités.
+@rpc("authority", "call_remote", "reliable")
+func _rpc_world_context(seed_val: int, system_index: int, planet_index: int, landing_dir: Vector3) -> void:
+	print("[ViewManager] contexte coop reçu (seed=", seed_val, ", sys=", system_index, ", planet=", planet_index, ").")
+	if GameState.global_seed != seed_val:
+		GameState.global_seed = seed_val
+		galaxy_view.rebuild()
+	goto_surface(system_index, planet_index, landing_dir)
+
+# Saut DIRECT vers une surface (système -> planète -> sol) en UNE transition. Réplique enter_system +
+# enter_planet + enter_surface sans leurs gardes individuels. Sert à la coop (invité) et au dev (--auto-surface).
+func goto_surface(system_index: int, planet_index: int, landing_dir: Vector3) -> void:
+	if _transitioning or galaxy_view.data == null:
+		return
+	if system_index < 0 or system_index >= galaxy_view.data.systems.size():
+		return
+	_transitioning = true
+	call_deferred("_clear_transition")
+	# 1. Système
+	var sys = galaxy_view.data.systems[system_index]
+	_current_system = sys
+	_current_system_index = system_index
+	var sdata = SystemGenerator.generate(sys.seed_local, sys.star_type, sys.palette_id, sys.name)
+	system_view.build(sdata)
+	if planet_index < 0 or planet_index >= sdata.planets.size():
+		return
+	# 2. Planète
+	var planet = sdata.planets[planet_index]
+	_current_planet_seed = planet.seed_local
+	_current_planet_name = planet.name
+	_orbit_planet_index = planet_index
+	planet_view.build(planet.seed_local)
+	_begin_flow_map(planet.seed_local)
+	# 3. Surface
+	var atmo := PlanetAtmosphere.atmosphere_color_for(_current_planet_seed)
+	_ensure_flow_map_ready()
+	var ld: Vector3 = landing_dir.normalized() if landing_dir.length() > 0.01 else _find_landing_dir(_current_planet_seed, _current_flow_map)
+	_current_landing_dir = ld
+	surface_view.build(_current_planet_seed, ld, atmo, galaxy_view.data.systems, sys.position, sys.palette_id, _current_flow_map)
+	galaxy_view.visible = false
+	system_view.visible = false
+	planet_view.visible = false
+	surface_view.visible = true
+	GameState.current_scale = GameState.Scale.SURFACE
+	var player = surface_view.get_player()
+	if GameState.xr_active:
+		player.enter_xr(xr_origin, xr_camera, left_controller, right_controller)
+		xr_camera.environment = surface_view.get_environment()
+	else:
+		player.enter_desktop()
+		player.get_active_camera().environment = surface_view.get_environment()
+	nav.set_prompt("")
+	print("[ViewManager] goto_surface (sys=", system_index, ", planet=", planet_index, ", seed=", _current_planet_seed, ").")

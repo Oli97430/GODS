@@ -21,6 +21,7 @@ const DEF := {
 	"vol_master": 1.0, "vol_ambient": 1.0, "vol_sfx": 1.0,
 	"haptics_enabled": true, "haptics_intensity": 1.0,
 	"vignette_on": true, "vignette_strength": 0.6, "turn_mode": 0, "snap_angle": 30.0,
+	"coop_ip": "127.0.0.1",
 }
 
 var render_scale: float = DEF.render_scale
@@ -41,6 +42,7 @@ var vignette_on: bool = DEF.vignette_on
 var vignette_strength: float = DEF.vignette_strength
 var turn_mode: int = DEF.turn_mode          # 0 = snap (par cran, confort), 1 = continue (smooth)
 var snap_angle: float = DEF.snap_angle      # degrés par cran de snap-turn
+var coop_ip: String = DEF.coop_ip           # coop : dernière IP d'hôte saisie (réutilisée par le menu COOP / la montre)
 
 var _has_file := false
 
@@ -155,6 +157,7 @@ func load_settings() -> void:
 	vignette_strength = cfg.get_value("comfort", "vignette_strength", vignette_strength)
 	turn_mode = int(cfg.get_value("comfort", "turn_mode", turn_mode))
 	snap_angle = cfg.get_value("comfort", "snap_angle", snap_angle)
+	coop_ip = str(cfg.get_value("coop", "ip", coop_ip))
 
 func save_settings() -> void:
 	var cfg := ConfigFile.new()
@@ -176,5 +179,6 @@ func save_settings() -> void:
 	cfg.set_value("comfort", "vignette_strength", vignette_strength)
 	cfg.set_value("comfort", "turn_mode", turn_mode)
 	cfg.set_value("comfort", "snap_angle", snap_angle)
+	cfg.set_value("coop", "ip", coop_ip)
 	cfg.save(PATH)
 	_has_file = true

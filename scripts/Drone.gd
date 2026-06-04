@@ -10,7 +10,8 @@ const SHIP_SIZE := 2.4            # m : envergure cible (auto-échelle)
 const SHIP_ROT_DEG := Vector3(0.0, 0.0, 0.0)   # alignement visuel (à ajuster si le vaisseau vole « à l'envers »)
 const ORBIT_DIST := 7.5    # m : distance d'orbite (plus proche du joueur) — variée par drone
 const SPEED := 8.0
-const HP_BASE := 3.0
+const HP_BASE := 4.0
+const HP_PER_WAVE := 2.0   # PV ajoutés par vague : compense le plafond de drones simultanés (robustesse vs nombre)
 const CHARGE_TIME := 0.5   # s : « télégraphe » (glow chaud) avant chaque tir => le joueur peut réagir
 const FRONT_HALF := 1.5708   # rad (90°) : demi-angle du cône AVANT où évoluent les drones (cône total 180°)
 const SWAY_AMP := 0.38       # rad (~22°) : amplitude du balancement dans le cône
@@ -36,13 +37,15 @@ var _glow: OmniLight3D   # lueur rouge d'ennemi : flash de dégât + télégraph
 var _core: MeshInstance3D       # cœur émissif rouge : tell d'ennemi permanent (additif, SANS lumière => coût nul)
 var _core_mat: StandardMaterial3D
 var fire_cb := Callable()       # WaveManager fournit : fire_cb.call(from, toward) => spawn un bolt
+var net_id := 0                 # coop : id réseau (assigné par CoopCombat côté hôte ; 0 = solo)
+var remote := false             # coop : true = drone-FANTÔME (invité) — pas d'IA, positionné par CoopCombat
 var _rng := RandomNumberGenerator.new()
 
 # Appelé par le WaveManager AVANT add_child : position de spawn + niveau (difficulté).
 func setup(player: Node3D, spawn_pos: Vector3, level: int) -> void:
 	_player = player
 	_pending_pos = spawn_pos
-	hp = HP_BASE + float(level - 1)
+	hp = HP_BASE + float(level - 1) * HP_PER_WAVE
 	_fire_interval = maxf(2.6 - float(level - 1) * 0.25, 1.2)
 var _pending_pos := Vector3.ZERO
 
@@ -110,6 +113,10 @@ func _ready() -> void:
 	# Apparition : pop d'échelle + bref flash lumineux (télégraphe « un drone arrive »).
 	_target_scale = _visual.scale
 	_visual.scale = _target_scale * 0.08
+	if remote:   # drone-fantôme (invité) : pleine échelle immédiate, pas de pop ni de flash d'apparition (déjà fait chez l'hôte)
+		_spawn_t = 0.0
+		_visual.scale = _target_scale
+		return
 	var spawn_fl := OmniLight3D.new()
 	spawn_fl.light_color = Color(1.0, 0.5, 0.4)
 	spawn_fl.omni_range = 6.0
@@ -119,6 +126,8 @@ func _ready() -> void:
 	get_tree().create_timer(0.18).timeout.connect(spawn_fl.queue_free)
 
 func _process(delta: float) -> void:
+	if remote:
+		return   # drone-fantôme : positionné par CoopCombat (aucune IA locale)
 	if _spawn_t > 0.0 and _visual:   # pop d'apparition (indépendant du joueur)
 		_spawn_t = maxf(_spawn_t - delta, 0.0)
 		var k := clampf(1.0 - _spawn_t / 0.35, 0.0, 1.0)
@@ -171,6 +180,12 @@ func _process(delta: float) -> void:
 # Appelé par PlayerController quand le blaster touche ce drone (raycast). amount = dégâts, pos = point d'impact.
 func take_damage(amount: float, pos: Vector3) -> void:
 	if _dead:
+		return
+	if remote:   # drone-fantôme : rapporte le coup à l'HÔTE (autorité) + étincelle locale ; pas de PV/mort local
+		var sp0 = preload("res://scripts/HitSpark.gd").new()
+		sp0.play(pos)
+		get_parent().add_child(sp0)
+		CoopCombat.client_report_hit(net_id, amount)
 		return
 	hp -= amount
 	_flash_t = 0.12

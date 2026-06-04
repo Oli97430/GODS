@@ -31,6 +31,8 @@ var _pending := Vector3.ZERO
 var _core_mat: StandardMaterial3D
 var _light: OmniLight3D
 var _collected := false
+var net_id := 0       # coop : id réseau (assigné par CoopCombat côté hôte ; 0 = solo)
+var remote := false   # coop : true = GHOST (invité) — visuel seul, position pilotée par CoopCombat
 
 # Couleur par type (statique => réutilisable pour le feedback côté joueur).
 static func kind_color(kind: int) -> Color:
@@ -96,7 +98,14 @@ func _process(delta: float) -> void:
 	_t += delta
 	_life += delta
 	if _life >= LIFETIME:
+		if not remote and net_id != 0 and NetworkManager.is_active() and NetworkManager.is_host():
+			CoopCombat.host_remove_pickup(net_id)   # coop : retire le ghost partout
 		queue_free()
+		return
+	# Coop : GHOST (invité) = visuel seul, position pilotée par CoopCombat (sync planète->rendu).
+	if remote:
+		rotate_y(SPIN_SPEED * delta)
+		_update_fade()
 		return
 	var gp := global_position
 	# Hauteur : descend/flotte au-dessus du sol trouvé par raycast (robuste terrain/rebase).
@@ -106,23 +115,37 @@ func _process(delta: float) -> void:
 		gp.y = lerpf(gp.y, target_y, clampf(SETTLE_LERP * delta, 0.0, 1.0))
 	else:
 		gp.y -= FALL_NOGROUND * delta
-	# Aimant horizontal + ramassage (distance 3D).
-	if _player != null and is_instance_valid(_player):
-		var to_player := _player.global_position - gp
-		var dist := to_player.length()
+	# Cible aimant/ramassage : solo = _player ; coop HÔTE = joueur le plus proche (hôte OU invité, autorité).
+	if NetworkManager.is_active() and NetworkManager.is_host():
+		var n: Dictionary = CoopCombat.coop_nearest_player(gp)
+		if n.get("has", false):
+			if float(n.dist) <= COLLECT_RADIUS:
+				global_position = gp
+				_collect_coop(bool(n.is_host), int(n.id))
+				return
+			if float(n.dist) <= MAGNET_RADIUS:
+				gp = _magnet_toward(gp, n.pos, delta)
+	elif _player != null and is_instance_valid(_player):
+		var dist := _player.global_position.distance_to(gp)
 		if dist <= COLLECT_RADIUS:
 			global_position = gp
 			_collect()
 			return
 		if dist <= MAGNET_RADIUS:
-			var flat := Vector2(to_player.x, to_player.z)
-			if flat.length() > 0.01:
-				var mv := flat.normalized() * MAGNET_SPEED * delta
-				gp.x += mv.x
-				gp.z += mv.y
+			gp = _magnet_toward(gp, _player.global_position, delta)
 	global_position = gp
 	rotate_y(SPIN_SPEED * delta)
-	# Pulsation + fondu de fin de vie.
+	_update_fade()
+
+func _magnet_toward(gp: Vector3, target: Vector3, delta: float) -> Vector3:
+	var flat := Vector2(target.x - gp.x, target.z - gp.z)
+	if flat.length() > 0.01:
+		var mv := flat.normalized() * MAGNET_SPEED * delta
+		gp.x += mv.x
+		gp.z += mv.y
+	return gp
+
+func _update_fade() -> void:
 	var fade := clampf(LIFETIME - _life, 0.0, 1.0)
 	if _core_mat:
 		var pulse := 0.7 + 0.3 * sin(_t * 4.0)
@@ -147,6 +170,21 @@ func _collect() -> void:
 	if _collected:
 		return
 	_collected = true
+	_spawn_collect_flash()
+	if _player != null and _player.has_method("apply_pickup"):
+		_player.apply_pickup(_kind)
+	queue_free()
+
+# Coop (hôte) : ramassé par le joueur le plus proche => CoopCombat applique le bonus au bon joueur + retire partout.
+func _collect_coop(is_host: bool, id: int) -> void:
+	if _collected:
+		return
+	_collected = true
+	_spawn_collect_flash()
+	CoopCombat.host_award_pickup(net_id, is_host, id, _kind)
+	queue_free()
+
+func _spawn_collect_flash() -> void:
 	# Flash de ramassage (bref, couleur du type).
 	var fl := OmniLight3D.new()
 	fl.light_color = _col
@@ -156,6 +194,3 @@ func _collect() -> void:
 	get_parent().add_child(fl)
 	fl.global_position = global_position
 	get_tree().create_timer(0.12).timeout.connect(fl.queue_free)
-	if _player != null and _player.has_method("apply_pickup"):
-		_player.apply_pickup(_kind)
-	queue_free()
