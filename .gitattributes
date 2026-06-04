@@ -1,2 +1,48 @@
-# Normalize EOL for all files that Git considers text files.
+# --- Defaut : normalise le texte en LF dans le depot, auto-detection texte/binaire ---
 * text=auto eol=lf
+
+# --- Scripts Windows : garder CRLF pour qu'ils s'executent nativement ---
+*.bat   text eol=crlf
+*.cmd   text eol=crlf
+*.ps1   text eol=crlf
+
+# --- Ressources texte Godot : LF force, traitees comme du texte (bons diffs) ---
+*.gd          text eol=lf
+*.gdshader    text eol=lf
+*.gdshaderinc text eol=lf
+*.tscn        text eol=lf
+*.tres        text eol=lf
+*.godot       text eol=lf
+*.cfg         text eol=lf
+*.import      text eol=lf
+*.uid         text eol=lf
+*.md          text eol=lf
+*.json        text eol=lf
+*.yml         text eol=lf
+
+# --- Assets binaires : NE JAMAIS toucher l'EOL, NE JAMAIS diff comme du texte ---
+*.glb   binary
+*.gltf  binary
+*.obj   binary
+*.fbx   binary
+*.blend binary
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.tga   binary
+*.exr   binary
+*.hdr   binary
+*.webp  binary
+*.svg   binary
+*.wav   binary
+*.ogg   binary
+*.mp3   binary
+*.ttf   binary
+*.otf   binary
+*.dll   binary
+*.so    binary
+*.dylib binary
+*.aar   binary
+*.pck   binary
+*.zip   binary
+*.exe   binary
