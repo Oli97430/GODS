@@ -1,30 +1,46 @@
 extends Node3D
-## Avatar d'un joueur DISTANT (coop) : MODÈLE GLB (corps) posé DEBOUT à la position de tête synchronisée +
-## arme tenue. `head`/`lhand`/`rhand`/`weapon` restent l'interface pilotée par CoopSync (global_transform en
-## espace-rendu, anti-rebase) ; `head` est une ANCRE invisible, le corps la suit (position + lacet, JAMAIS le
-## tangage/roulis => le corps reste droit même quand le partenaire regarde en l'air). AUTO-CONTENU.
+## Avatar d'un joueur DISTANT (coop) : MODÈLE GLB (corps) posé DEBOUT à la position de tête synchronisée, avec
+## bras qui SUIVENT les mains trackées (IK simple) + ARME RÉELLE tenue + ÉTIQUETTE de nom. `head`/`lhand`/`rhand`/
+## `weapon` restent l'interface pilotée par CoopSync (global_transform en espace-rendu, anti-rebase). `head` est une
+## ANCRE invisible ; le corps la suit (position + lacet, jamais le tangage => reste droit). AUTO-CONTENU.
 
 const AVATAR_MODEL_PATH := "res://models/calibur_vgdc.glb"
 const TARGET_HEIGHT := 1.75    # m : hauteur visée du modèle (auto-échelle quelle que soit la taille du GLB)
-const MODEL_EULER_DEG := Vector3(0.0, 180.0, 0.0)   # correction d'orientation du modèle (repère LOCAL, degrés) — réglable
+const MODEL_EULER_DEG := Vector3(0.0, 180.0, 0.0)   # correction d'orientation du modèle (repère LOCAL, degrés)
+# IK des bras : les os du modèle suivent les mains trackées. ⏳ À VALIDER EN COOP (2 casques) ; mettre false pour
+# revenir aux bras au repos si la convention d'axe des os ne colle pas (twist).
+const ARM_IK := true
+const WEAPON_PATHS := {0: "res://models/revolver.glb", 1: "res://models/plasma_gun.glb", 2: "res://models/grenade_launcher.glb"}
+const WEAPON_LEN := 0.30       # m : longueur visée du modèle d'arme tenu
 
-var head: MeshInstance3D       # ANCRE invisible (pilotée par CoopSync) — donne position + orientation de la tête
+var head: MeshInstance3D        # ANCRE invisible (pilotée par CoopSync) — donne position + orientation de la tête
 var lhand: MeshInstance3D
 var rhand: MeshInstance3D
-var weapon: MeshInstance3D
-var _body: Node3D              # le modèle GLB, top_level, repositionné chaque frame d'après `head`
+var weapon: MeshInstance3D      # ANCRE de l'arme (sans mesh) ; les modèles GLB d'arme sont ses enfants
+var _body: Node3D               # le modèle GLB, top_level, repositionné chaque frame d'après `head`
 var _body_scale := 1.0
-var _head_top := TARGET_HEIGHT # distance origine-du-modèle -> sommet de la tête (après échelle), pour aligner
+var _head_top := TARGET_HEIGHT  # distance origine-du-modèle -> sommet de la tête (après échelle), pour aligner
 var _weapon_id := -2
+var _hands_on := false          # mains trackées visibles (partenaire armé/tracké)
+var peer_id := 0
+# Squelette + IK
+var _skel: Skeleton3D = null
+var _b_upper_l := -1
+var _b_upper_r := -1
+var _b_hand_l := -1
+var _b_hand_r := -1
+# Modèles d'arme tenus (chargés paresseusement) + étiquette de nom.
+var _wmodels := {}              # id -> Node3D
+var _name_tag: Label3D = null
 
 func _ready() -> void:
 	head = _make(_capsule(0.12, 0.30), Color(0.55, 0.68, 0.95))
 	lhand = _make(_sphere(0.05), Color(0.85, 0.74, 0.62))
 	rhand = _make(_sphere(0.05), Color(0.85, 0.74, 0.62))
-	var bm := BoxMesh.new()
-	bm.size = Vector3(0.05, 0.06, 0.26)
-	weapon = _make(bm, Color(0.4, 0.7, 1.0))
+	weapon = MeshInstance3D.new()   # ancre nue (les modèles d'arme s'y attachent)
+	weapon.top_level = true
 	weapon.visible = false
+	add_child(weapon)
 	# Corps = modèle GLB chargé À L'EXÉCUTION (le script compile même si l'import n'est pas prêt). Repli capsule sinon.
 	var ps: Resource = load(AVATAR_MODEL_PATH) if ResourceLoader.exists(AVATAR_MODEL_PATH) else null
 	if ps is PackedScene:
@@ -35,6 +51,8 @@ func _ready() -> void:
 		lhand.visible = false
 		rhand.visible = false
 		_fit_body()
+		_setup_skeleton()
+	_make_name_tag()
 
 # Auto-échelle : mesure l'AABB combinée du modèle (à l'échelle 1) et la ramène à TARGET_HEIGHT.
 func _fit_body() -> void:
@@ -44,18 +62,21 @@ func _fit_body() -> void:
 	_head_top = (aabb.position.y + aabb.size.y) * _body_scale   # sommet (tête) au-dessus de l'origine, à l'échelle
 
 func _model_aabb() -> AABB:
+	return _node_aabb(_body)
+
+func _node_aabb(root: Node) -> AABB:
 	var out := AABB()
 	var first := true
-	for n in _descendants(_body):
+	for n in _descendants(root):
 		if n is MeshInstance3D and (n as MeshInstance3D).mesh != null:
-			var wa: AABB = (n as MeshInstance3D).global_transform * (n as MeshInstance3D).get_aabb()
+			var wa: AABB = (root as Node3D).global_transform.affine_inverse() * (n as MeshInstance3D).global_transform * (n as MeshInstance3D).get_aabb()
 			if first:
 				out = wa
 				first = false
 			else:
 				out = out.merge(wa)
 	if first:
-		out = AABB(Vector3(-0.3, 0.0, -0.3), Vector3(0.6, TARGET_HEIGHT, 0.6))   # repli si pas de mesh trouvé
+		out = AABB(Vector3(-0.3, 0.0, -0.3), Vector3(0.6, TARGET_HEIGHT, 0.6))
 	return out
 
 func _descendants(n: Node) -> Array:
@@ -64,8 +85,46 @@ func _descendants(n: Node) -> Array:
 		o += _descendants(c)
 	return o
 
+# Cache le squelette + les indices des os de bras/mains (par PRÉFIXE de nom, robuste aux suffixes type "_09").
+func _setup_skeleton() -> void:
+	_skel = _find_skel(_body)
+	if _skel == null:
+		return
+	var ap = _find_anim(_body)
+	if ap:
+		ap.active = false   # coupe une éventuelle anim d'idle qui se battrait avec nos overrides
+	for i in _skel.get_bone_count():
+		var nm := _skel.get_bone_name(i)
+		if nm.begins_with("UpperArm.L"):
+			_b_upper_l = i
+		elif nm.begins_with("UpperArm.R"):
+			_b_upper_r = i
+		elif nm.begins_with("Hand.L"):
+			_b_hand_l = i
+		elif nm.begins_with("Hand.R"):
+			_b_hand_r = i
+
+func _find_skel(n: Node):
+	if n is Skeleton3D:
+		return n
+	for c in n.get_children():
+		var r = _find_skel(c)
+		if r:
+			return r
+	return null
+
+func _find_anim(n: Node):
+	if n is AnimationPlayer:
+		return n
+	for c in n.get_children():
+		var r = _find_anim(c)
+		if r:
+			return r
+	return null
+
 func _process(_dt: float) -> void:
 	if _body == null or not is_instance_valid(_body):
+		_update_name_tag()
 		return
 	var ht := head.global_transform
 	# Lacet uniquement : le corps reste vertical (l'avatar ne se couche pas quand le partenaire regarde en l'air).
@@ -75,10 +134,83 @@ func _process(_dt: float) -> void:
 		fwd = Vector3.FORWARD
 	fwd = fwd.normalized()
 	var b := Basis.looking_at(fwd, Vector3.UP)   # debout, -Z orienté vers fwd
-	b = b * Basis.from_euler(Vector3(deg_to_rad(MODEL_EULER_DEG.x), deg_to_rad(MODEL_EULER_DEG.y), deg_to_rad(MODEL_EULER_DEG.z)))   # correction d'axe du modèle
-	# La TÊTE du modèle (origine + _head_top) doit coïncider avec la position de tête trackée => on descend l'origine.
+	b = b * Basis.from_euler(Vector3(deg_to_rad(MODEL_EULER_DEG.x), deg_to_rad(MODEL_EULER_DEG.y), deg_to_rad(MODEL_EULER_DEG.z)))
 	var origin := ht.origin - Vector3.UP * _head_top
 	_body.global_transform = Transform3D(b.scaled(Vector3.ONE * _body_scale), origin)
+	if ARM_IK and _skel != null:
+		_update_arms()
+	_update_name_tag()
+
+# --- IK des bras : place les mains (os racine) sur les mains trackées + oriente les hauts de bras vers elles ---
+func _update_arms() -> void:
+	if not _hands_on:
+		_rest_arm(_b_upper_l)
+		_rest_arm(_b_hand_l)
+		_rest_arm(_b_upper_r)
+		_rest_arm(_b_hand_r)
+		return
+	var inv := _skel.global_transform.affine_inverse()
+	_aim_arm(_b_upper_l, _b_hand_l, lhand, inv)
+	_aim_arm(_b_upper_r, _b_hand_r, rhand, inv)
+
+func _aim_arm(upper: int, hand_b: int, hand_node: MeshInstance3D, inv: Transform3D) -> void:
+	if hand_b < 0 or hand_node == null:
+		return
+	# Poignet : os RACINE (parent=-1) => pose locale = pose en espace-squelette. Placement EXACT sur la main trackée.
+	var hl := inv * hand_node.global_transform
+	_skel.set_bone_pose_position(hand_b, hl.origin)
+	_skel.set_bone_pose_rotation(hand_b, hl.basis.orthonormalized().get_rotation_quaternion())
+	if upper < 0:
+		return
+	# Haut de bras : +Y (axe long de l'os, convention Blender) pointe vers la main.
+	var ur := _skel.get_bone_global_rest(upper)
+	var dir := hl.origin - ur.origin
+	if dir.length() < 0.001:
+		return
+	dir = dir.normalized()
+	var ref := Vector3.RIGHT if absf(dir.dot(Vector3.RIGHT)) < 0.9 else Vector3.FORWARD
+	var xv := ref.cross(dir).normalized()
+	var zv := xv.cross(dir).normalized()
+	var gb := Basis(xv, dir, zv)   # colonne Y = dir
+	var par := _skel.get_bone_parent(upper)
+	var pg := _skel.get_bone_global_rest(par) if par >= 0 else Transform3D.IDENTITY
+	var loc := pg.affine_inverse() * Transform3D(gb, ur.origin)
+	_skel.set_bone_pose_rotation(upper, loc.basis.orthonormalized().get_rotation_quaternion())
+
+func _rest_arm(b: int) -> void:
+	if b < 0:
+		return
+	var r := _skel.get_bone_rest(b)
+	_skel.set_bone_pose_position(b, r.origin)
+	_skel.set_bone_pose_rotation(b, r.basis.get_rotation_quaternion())
+
+# --- Étiquette de nom (Label3D billboard au-dessus de l'avatar) ---
+func _make_name_tag() -> void:
+	_name_tag = Label3D.new()
+	_name_tag.top_level = true
+	_name_tag.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	_name_tag.no_depth_test = true
+	_name_tag.fixed_size = true
+	_name_tag.pixel_size = 0.0012
+	_name_tag.modulate = Color(0.72, 0.9, 1.0)
+	_name_tag.outline_size = 10
+	_name_tag.outline_modulate = Color(0.0, 0.0, 0.0, 0.8)
+	_name_tag.text = _tag_text()
+	add_child(_name_tag)
+
+func _tag_text() -> String:
+	return "JOUEUR %d" % peer_id if peer_id > 0 else "JOUEUR"
+
+func _update_name_tag() -> void:
+	if _name_tag == null:
+		return
+	if head != null and is_instance_valid(head):
+		_name_tag.global_position = head.global_transform.origin + Vector3.UP * 0.32
+
+func set_peer_id(id: int) -> void:
+	peer_id = id
+	if _name_tag:
+		_name_tag.text = _tag_text()
 
 func _capsule(r: float, h: float) -> CapsuleMesh:
 	var m := CapsuleMesh.new()
@@ -106,8 +238,9 @@ func _make(mesh: Mesh, col: Color) -> MeshInstance3D:
 	add_child(mi)
 	return mi
 
-# Le modèle a ses propres mains => seules l'arme tenue (re)devient visible selon l'état combat de l'autre joueur.
+# Le modèle a ses propres mains => seule l'arme tenue (re)devient visible selon l'état combat de l'autre joueur.
 func set_hands_visible(v: bool) -> void:
+	_hands_on = v
 	if _body == null:                 # repli capsule : on montre aussi les mains-sphères
 		lhand.visible = v
 		rhand.visible = v
@@ -117,7 +250,33 @@ func set_weapon(id: int) -> void:
 	if id == _weapon_id:
 		return
 	_weapon_id = id
-	weapon.visible = id >= 0
+	for k in _wmodels:
+		_wmodels[k].visible = false
 	if id >= 0:
-		var cols := [Color(0.4, 0.9, 1.0), Color(0.45, 1.0, 0.55), Color(1.0, 0.6, 0.15)]   # revolver / plasma / grenade
-		(weapon.material_override as StandardMaterial3D).albedo_color = cols[clampi(id, 0, 2)]
+		var mdl = _ensure_weapon_model(id)
+		if mdl:
+			mdl.visible = true
+	weapon.visible = _hands_on and id >= 0
+
+# Charge + prépare paresseusement le modèle GLB d'arme `id` (barillet +Z dans le GLB => 180° Y vers -Z, auto-échelle).
+func _ensure_weapon_model(id: int):
+	if _wmodels.has(id):
+		return _wmodels[id]
+	if not WEAPON_PATHS.has(id):
+		return null
+	var path: String = WEAPON_PATHS[id]
+	if not ResourceLoader.exists(path):
+		return null
+	var ps = load(path)
+	if not (ps is PackedScene):
+		return null
+	var inst = (ps as PackedScene).instantiate()
+	weapon.add_child(inst)
+	var aabb := _node_aabb(inst)
+	var longest: float = maxf(maxf(aabb.size.x, aabb.size.y), aabb.size.z)
+	var s := 1.0 if longest < 0.001 else (WEAPON_LEN / longest)
+	var basis := Basis.from_euler(Vector3(0.0, deg_to_rad(180.0), 0.0)).scaled(Vector3.ONE * s)
+	var center := aabb.position + aabb.size * 0.5
+	inst.transform = Transform3D(basis, -(basis * center))   # centré sur l'ancre, orienté, mis à l'échelle
+	_wmodels[id] = inst
+	return inst

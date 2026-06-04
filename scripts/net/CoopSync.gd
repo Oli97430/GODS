@@ -52,6 +52,8 @@ func _spawn_avatar(id: int) -> void:
 		return
 	var av = RAVATAR.new()
 	sc.add_child(av)
+	if av.has_method("set_peer_id"):
+		av.set_peer_id(id)   # étiquette de nom au-dessus de l'avatar
 	_avatars[id] = av
 
 func _remove_avatar(id: int) -> void:
