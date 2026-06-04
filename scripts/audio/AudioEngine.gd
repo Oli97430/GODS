@@ -620,6 +620,69 @@ func _synth_grenade_launch() -> AudioStreamWAV:
 	SfxSynth.apply_ar(buf, 0.001, 0.05)
 	return SfxSynth.to_wav(buf)
 
+var _missile_lock_wav: AudioStreamWAV
+var _missile_launch_wav: AudioStreamWAV
+
+# Acquisition de verrou missile : deux brefs blips sinus ASCENDANTS (timbre radar). 2D, discret.
+func play_missile_lock() -> void:
+	if _missile_lock_wav == null:
+		_missile_lock_wav = _synth_missile_lock()
+	play_2d(_missile_lock_wav, -14.0, 1.0, "SFX")
+
+func _synth_missile_lock() -> AudioStreamWAV:
+	var dur := 0.16
+	var buf := SfxSynth.make_buffer(dur)
+	var n := buf.size()
+	var sr := float(SfxSynth.SR)
+	var o := Osc.new(SfxSynth.SR, 1200.0, Osc.Wave.SINE)
+	var oh := Osc.new(SfxSynth.SR, 2400.0, Osc.Wave.SINE)
+	for i in n:
+		var t := float(i) / sr
+		var f := 1200.0
+		var lt := t
+		var on := false
+		if t >= 0.08:                       # 2e blip plus AIGU (verrou acquis)
+			f = 1700.0
+			lt = t - 0.08
+			on = lt < 0.07
+		else:
+			on = lt < 0.05
+		o.set_freq(f)
+		oh.set_freq(f * 2.0)
+		var env := exp(-lt * 30.0) if on else 0.0
+		var s := (o.next() * 0.6 + oh.next() * 0.2) * env * 0.8
+		buf[i] = s / (1.0 + absf(s))
+	SfxSynth.apply_ar(buf, 0.001, 0.02)
+	SfxSynth.normalize_peak(buf, 0.34)
+	return SfxSynth.to_wav(buf)
+
+# Lancement missile : WHOOSH (bruit passe-bande balayé vers l'aigu) + poussée grave. Spatialisé (≠ pomf de grenade).
+func play_missile_launch(world_pos: Vector3) -> void:
+	if _missile_launch_wav == null:
+		_missile_launch_wav = _synth_missile_launch()
+	play_3d(_missile_launch_wav, world_pos, -4.0, randf_range(0.96, 1.05), "SFX")
+
+func _synth_missile_launch() -> AudioStreamWAV:
+	var dur := 0.32
+	var buf := SfxSynth.make_buffer(dur)
+	var n := buf.size()
+	var sr := float(SfxSynth.SR)
+	var nz := SynthNoise.new(SynthNoise.Kind.WHITE)
+	var bp := Biquad.new(SfxSynth.SR)
+	var sub := Osc.new(SfxSynth.SR, 120.0, Osc.Wave.SINE)
+	for i in n:
+		var t := float(i) / sr
+		var k := clampf(t / dur, 0.0, 1.0)
+		bp.set_params(Biquad.Type.BANDPASS, lerpf(500.0, 3200.0, k), 1.2)   # souffle qui file vers l'aigu (départ)
+		var whoosh := bp.process(nz.next()) * 0.6 * (1.0 - 0.4 * k)
+		sub.set_freq(lerpf(130.0, 70.0, k))
+		var body := sub.next() * 0.5 * exp(-t * 9.0)                         # poussée grave initiale
+		var s := (whoosh + body) * 0.85
+		buf[i] = s / (1.0 + absf(s))
+	SfxSynth.apply_ar(buf, 0.003, 0.09)
+	SfxSynth.normalize_peak(buf, 0.4)
+	return SfxSynth.to_wav(buf)
+
 # Pré-génère TOUS les WAV de combat (sinon le 1er usage de chacun synthétise EN JEU => micro-hitch, gênant en
 # VR). Appelé une fois à l'équipement d'une arme. Idempotent (chaque synth ne tourne que si le cache est vide).
 func warmup_combat() -> void:
@@ -632,6 +695,8 @@ func warmup_combat() -> void:
 	if _kill_confirm_wav == null: _kill_confirm_wav = _synth_confirm(true)
 	if _wave_start_wav == null: _wave_start_wav = _synth_wave_start()
 	if _impact_wav == null: _impact_wav = _synth_impact()
+	if _missile_lock_wav == null: _missile_lock_wav = _synth_missile_lock()
+	if _missile_launch_wav == null: _missile_launch_wav = _synth_missile_launch()
 
 # Active/désactive la musique générative (toggle montre).
 func set_music_enabled(on: bool) -> void:

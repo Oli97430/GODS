@@ -107,15 +107,25 @@ var _firerate_mult := 1.0 # x cadence de tir (améliorations)
 var _overshield := 0.0    # PV de bouclier en sus (améliorations), absorbés avant les PV
 var _pickup_msg := ""     # annonce brève de ramassage (affichée sur le readout)
 var _pickup_msg_t := 0.0  # minuterie de l'annonce de ramassage (s)
-# Missile à tête chercheuse (tir SECONDAIRE du plasma, munitions LOOTÉES) : verrou auto + tir vers un drone.
+# Missile à tête chercheuse (tir SECONDAIRE du plasma, munitions LOOTÉES) : verrou À MAINTENIR + tir vers un drone.
 const MISSILE_DMG := 200.0          # gros dégât (= plafond RPC coop) => détruit tout drone réaliste
 const MISSILE_LOCK_ANGLE := 16.0    # ° : demi-cône de verrouillage autour de l'axe du canon plasma
 const MISSILE_LOCK_RANGE := 70.0    # m : portée de verrouillage
+const MISSILE_LOCK_DWELL := 0.4     # s : durée à garder la cible dans le cône avant que le verrou accroche
 const MISSILE_AMMO_MAX := 8
 var _missile_ammo := 0              # munitions missile (portée RUN, lootées)
-var _lock_target: Node3D = null     # drone verrouillé (cible du prochain missile)
+var _lock_candidate: Node3D = null  # drone dans le cône (verrouillage EN COURS)
+var _lock_target: Node3D = null     # drone VERROUILLÉ (cible du prochain missile ; null tant que pas accroché)
+var _lock_t := 0.0                  # minuterie de maintien du verrou
+var _locked := false                # verrou accroché ?
+var _lock_spin := 0.0               # rotation de l'anneau de verrou
 var _missile_prev := false          # front du tir secondaire (gâchette gauche VR / clic-molette bureau)
 var _lock_ring: MeshInstance3D = null
+# Holster VR : repères visuels révélés à l'approche de la main + tic haptique à l'entrée de zone.
+const HOLSTER_REVEAL := 0.45        # m : distance à laquelle le repère de holster commence à apparaître
+const HOLSTER_MARK_SIZE := 0.05     # m : rayon du repère (sphère) au plus proche
+var _holster_marks: Array = []      # 3 MeshInstance3D (hanche D / hanche G / épaule)
+var _holster_in := [false, false, false]   # main DANS chaque zone de saisie (pour le tic d'entrée)
 var _stuck_t := 0.0   # anti-blocage : temps passé à "vouloir marcher sans avancer" (enfoncé/coincé)
 # Retour haptique XR (no-op en bureau) — état de suivi des différents pulses.
 var _step_foot := 1      # alterne le tic de foulée gauche/droite
@@ -323,6 +333,15 @@ func exit() -> void:
 		_combat_overlay.clear()
 	if _combat_readout:
 		_combat_readout.clear()
+	# Combat polish : masque l'anneau de verrou + les repères de holster en quittant la surface.
+	_locked = false
+	_lock_candidate = null
+	if _lock_ring:
+		_lock_ring.visible = false
+	for m in _holster_marks:
+		if is_instance_valid(m):
+			m.visible = false
+	_holster_in = [false, false, false]
 	_dead = false
 	_hp = HP_MAX
 	_hurt_t = 0.0
@@ -435,11 +454,6 @@ func active_weapon_name() -> String:
 func _update_holster() -> void:
 	if _xr_camera == null or _right == null or not _right.get_is_active():
 		return
-	var grip: bool = _right.get_float("grip") > 0.6
-	var edge: bool = grip and not _grip_prev
-	_grip_prev = grip
-	if not edge:
-		return
 	var ht := _xr_camera.global_transform
 	var fwd := -ht.basis.z
 	fwd.y = 0.0
@@ -449,19 +463,43 @@ func _update_holster() -> void:
 	var right := fwd.cross(Vector3.UP)   # droite horizontale du corps (depuis le lacet de la tête)
 	var hp := ht.origin
 	var rp := _right.global_position
-	# Points de saisie (m, relatifs à la tête) : hanches plus bas ; épaule plus haut + en arrière.
+	# Zones de saisie (position, id arme, couleur du repère). Hanches plus bas ; épaule plus haut + en arrière.
 	var zones := [
-		[hp + right * 0.20 + Vector3.DOWN * 0.62 + fwd * 0.04, 0],   # hanche DROITE -> revolver
-		[hp - right * 0.20 + Vector3.DOWN * 0.62 + fwd * 0.04, 2],   # hanche GAUCHE (cross-draw) -> grenade
-		[hp + right * 0.17 + Vector3.DOWN * 0.06 - fwd * 0.14, 1],   # épaule DROITE (over-shoulder) -> plasma
+		[hp + right * 0.20 + Vector3.DOWN * 0.62 + fwd * 0.04, 0, Color(0.4, 0.9, 1.0)],   # hanche D -> revolver
+		[hp - right * 0.20 + Vector3.DOWN * 0.62 + fwd * 0.04, 2, Color(1.0, 0.6, 0.15)],  # hanche G -> grenade
+		[hp + right * 0.17 + Vector3.DOWN * 0.06 - fwd * 0.14, 1, Color(0.45, 1.0, 0.55)], # épaule D -> plasma
 	]
+	_ensure_holster_markers()
 	var best := -1
 	var bd := HOLSTER_RADIUS
-	for z in zones:
-		var d: float = rp.distance_to(z[0])
+	for zi in zones.size():
+		var z = zones[zi]
+		var zp: Vector3 = z[0]
+		var d: float = rp.distance_to(zp)
+		# Repère : révélé / agrandi / illuminé à mesure que la main approche (anti-clutter quand on explore).
+		var near01 := clampf(1.0 - d / HOLSTER_REVEAL, 0.0, 1.0)
+		var m: MeshInstance3D = _holster_marks[zi]
+		m.visible = near01 > 0.02
+		if m.visible:
+			m.global_position = zp
+			m.scale = Vector3.ONE * (lerpf(0.5, 1.3, near01) * HOLSTER_MARK_SIZE)
+			var c: Color = z[2]
+			c.a = lerpf(0.1, 0.9, near01)
+			(m.material_override as StandardMaterial3D).albedo_color = c
+		# Tic haptique au FRANCHISSEMENT (entrée) de la zone de saisie.
+		var inside := d < HOLSTER_RADIUS
+		if inside and not _holster_in[zi]:
+			_haptic(0.3, 0.05, 0.0, 1)
+		_holster_in[zi] = inside
 		if d < bd:
 			bd = d
 			best = z[1]
+	# Saisie au FRONT du grip droit (dégainer / rengainer selon la zone la plus proche).
+	var grip: bool = _right.get_float("grip") > 0.6
+	var edge: bool = grip and not _grip_prev
+	_grip_prev = grip
+	if not edge:
+		return
 	if best == 0:
 		toggle_weapon()
 	elif best == 1:
@@ -471,15 +509,43 @@ func _update_holster() -> void:
 	if best >= 0:
 		_haptic(0.5, 0.1, 0.0, 1)   # retour de saisie (manette droite)
 
+# Crée paresseusement les 3 repères de holster (sphères additives top_level, masquées par défaut).
+func _ensure_holster_markers() -> void:
+	if not _holster_marks.is_empty():
+		return
+	for i in 3:
+		var m := MeshInstance3D.new()
+		m.top_level = true
+		m.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		var sm := SphereMesh.new()
+		sm.radius = 1.0
+		sm.height = 2.0
+		sm.radial_segments = 10
+		sm.rings = 6
+		m.mesh = sm
+		var mat := StandardMaterial3D.new()
+		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+		mat.albedo_color = Color(1.0, 1.0, 1.0, 0.0)
+		m.material_override = mat
+		m.visible = false
+		add_child(m)
+		_holster_marks.append(m)
+
 # --- Missile à tête chercheuse (tir SECONDAIRE du plasma) ---
 # Actif uniquement plasma dégainé. Verrou auto sur le drone le plus aligné avec le canon (cône), tir au front
 # de la gâchette GAUCHE (VR) / clic-molette (bureau) si munitions. Coop : le missile frappe la cible (réelle ou
 # fantôme) via take_damage -> l'invité rapporte le coup à l'hôte (validé ≤ MISSILE_DMG).
-func _update_missile(_delta: float) -> void:
+func _update_missile(delta: float) -> void:
 	if _blaster != _plasma or _plasma == null or _dead or not _armed:
+		_lock_candidate = null
 		_lock_target = null
+		_locked = false
+		_lock_t = 0.0
 		_update_lock_ring()
 		return
+	# Candidat = drone le plus aligné avec le canon, à portée (dans le cône).
 	var mt: Transform3D = _plasma.aim_transform()
 	var origin := mt.origin
 	var fwd := -mt.basis.z
@@ -496,9 +562,24 @@ func _update_missile(_delta: float) -> void:
 		if dot > best_dot:
 			best_dot = dot
 			best = d as Node3D
-	_lock_target = best
+	# Verrou À MAINTENIR : garder le MÊME candidat dans le cône pendant MISSILE_LOCK_DWELL pour accrocher.
+	if best != _lock_candidate:
+		_lock_candidate = best
+		_lock_t = 0.0
+		_locked = false
+	if _lock_candidate != null:
+		if not _locked:
+			_lock_t += delta
+			if _lock_t >= MISSILE_LOCK_DWELL:
+				_locked = true
+				AudioEngine.play_missile_lock()   # bip d'acquisition
+				_haptic(0.4, 0.06, 0.0, 1)
+	else:
+		_locked = false
+		_lock_t = 0.0
+	_lock_target = _lock_candidate if _locked else null
 	_update_lock_ring()
-	if _missile_fire_edge() and _lock_target != null and _missile_ammo > 0:
+	if _missile_fire_edge() and _locked and _lock_target != null and _missile_ammo > 0:
 		_fire_missile()
 
 func _missile_fire_edge() -> bool:
@@ -512,14 +593,15 @@ func _missile_fire_edge() -> bool:
 	return edge
 
 func _fire_missile() -> void:
-	_missile_ammo -= 1
+	Inventory.consume_missile()        # décrémente le STOCK persistant (sauvegardé)
+	_missile_ammo = Inventory.missiles
 	var mt: Transform3D = _plasma.aim_transform()
 	var m = preload("res://scripts/HomingMissile.gd").new()
 	m.setup(mt.origin, _lock_target, MISSILE_DMG)
 	var sc := get_tree().current_scene
 	if sc != null:
 		sc.add_child(m)
-	AudioEngine.play_grenade_launch(mt.origin)   # whoosh grave de lancement (réutilisé)
+	AudioEngine.play_missile_launch(mt.origin)   # whoosh de lancement DÉDIÉ (≠ pomf de grenade)
 	_haptic(0.6, 0.13, 0.0, 1)
 	BHaptics.weapon_recoil(0.6)
 	_pickup_msg = "MISSILE LANCÉ"
@@ -527,31 +609,45 @@ func _fire_missile() -> void:
 
 # Anneau de verrouillage : créé paresseusement, posé (top_level) sur le drone verrouillé, tournoie ; masqué sinon.
 func _update_lock_ring() -> void:
-	if _lock_target != null and is_instance_valid(_lock_target):
-		if _lock_ring == null:
-			_lock_ring = MeshInstance3D.new()
-			_lock_ring.top_level = true
-			_lock_ring.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-			var tm := TorusMesh.new()
-			tm.inner_radius = 1.0
-			tm.outer_radius = 1.25
-			_lock_ring.mesh = tm
-			var rmat := StandardMaterial3D.new()
-			rmat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-			rmat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-			rmat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
-			rmat.albedo_color = Color(0.5, 1.0, 0.6, 0.85)
-			_lock_ring.material_override = rmat
-			add_child(_lock_ring)
-		_lock_ring.visible = true
-		_lock_ring.global_position = (_lock_target as Node3D).global_position
-		_lock_ring.rotate_y(0.06)   # tournoiement
-	elif _lock_ring != null:
-		_lock_ring.visible = false
+	if _lock_candidate == null or not is_instance_valid(_lock_candidate):
+		if _lock_ring != null:
+			_lock_ring.visible = false
+		return
+	if _lock_ring == null:
+		_lock_ring = MeshInstance3D.new()
+		_lock_ring.top_level = true
+		_lock_ring.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		var tm := TorusMesh.new()
+		tm.inner_radius = 1.0
+		tm.outer_radius = 1.22
+		_lock_ring.mesh = tm
+		var rmat := StandardMaterial3D.new()
+		rmat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		rmat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		rmat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+		_lock_ring.material_override = rmat
+		add_child(_lock_ring)
+	_lock_ring.visible = true
+	var pos := (_lock_candidate as Node3D).global_position
+	# Face-caméra : l'axe du tore (Y) pointe vers l'œil ; l'anneau se RESSERRE pendant le verrouillage.
+	var cam: Node3D = _xr_camera if (_xr and _xr_camera != null) else _eyes
+	var to_cam := Vector3.UP
+	if cam != null:
+		var dd := cam.global_position - pos
+		if dd.length() > 0.001:
+			to_cam = dd.normalized()
+	_lock_spin += 0.06
+	var b := Basis(Quaternion(Vector3.UP, to_cam)) * Basis(Vector3.UP, _lock_spin)
+	var ring_sc := 1.0 if _locked else lerpf(1.7, 1.05, clampf(_lock_t / MISSILE_LOCK_DWELL, 0.0, 1.0))
+	_lock_ring.global_transform = Transform3D(b.scaled(Vector3.ONE * ring_sc), pos)
+	# Jaune pendant le verrouillage, VERT une fois accroché.
+	var col := Color(0.5, 1.0, 0.6, 0.9) if _locked else Color(1.0, 0.85, 0.2, 0.8)
+	(_lock_ring.material_override as StandardMaterial3D).albedo_color = col
 
 # DEV : dote en munitions missile (flag --auto-arm) pour tester le tir secondaire sans avoir à looter.
 func dev_load_missiles(n: int) -> void:
-	_missile_ammo = clampi(n, 0, MISSILE_AMMO_MAX)
+	Inventory.set_missiles(n)
+	_missile_ammo = Inventory.missiles
 
 # Touché par un tir ennemi : applique les dégâts, flash + flèche directionnelle + haptique, mort si PV ≤ 0.
 # from_dir = direction monde d'où venait le tir (vers le tireur), pour l'indicateur directionnel.
@@ -602,23 +698,25 @@ func on_kill() -> void:
 func apply_pickup(kind: int) -> void:
 	if _dead or not _armed:
 		return
+	Inventory.collect(kind)   # accumule dans l'inventaire PERSISTANT (sauvegardé) — les bonus sont CONSERVÉS
 	match kind:
 		0:
-			_hp = minf(_hp + 35.0, HP_MAX)
+			_hp = minf(_hp + 35.0, HP_MAX)   # soin : effet INSTANTANÉ (auto-appliqué) ; +1 soin aussi mis en stock
 			GameState.combat_hp = _hp
 			_pickup_msg = "+VIE"
 		1:
-			_dmg_mult = minf(_dmg_mult + 0.25, 3.0)
-			_pickup_msg = "DGT x%.2f" % _dmg_mult
+			_pickup_msg = "DGT x%.2f" % Inventory.damage_mult()
 		2:
-			_firerate_mult = minf(_firerate_mult + 0.20, 2.5)
-			_pickup_msg = "CAD x%.2f" % _firerate_mult
+			_pickup_msg = "CAD x%.2f" % Inventory.firerate_mult()
 		3:
-			_overshield = minf(_overshield + 25.0, 75.0)
-			_pickup_msg = "BOUCLIER +25"
+			_overshield = Inventory.shield_cap()   # bouclier rempli à la nouvelle capacité persistante
+			_pickup_msg = "BOUCLIER %d" % int(_overshield)
 		4:
-			_missile_ammo = mini(_missile_ammo + 2, MISSILE_AMMO_MAX)
 			_pickup_msg = "+2 MISSILES"
+	# Re-dérive les bonus PERSISTANTS (auto-appliqués) depuis l'inventaire.
+	_dmg_mult = Inventory.damage_mult()
+	_firerate_mult = Inventory.firerate_mult()
+	_missile_ammo = Inventory.missiles
 	_pickup_msg_t = 1.8
 	GameState.combat_overshield = _overshield
 	GameState.combat_dmg_mult = _dmg_mult
@@ -631,6 +729,8 @@ func apply_pickup(kind: int) -> void:
 # Suffixe compact des améliorations actives (pour le readout). Vide si aucune.
 func _buff_suffix() -> String:
 	var s := ""
+	if _locked and _missile_ammo > 0:
+		s += "🎯LOCK  "
 	if _missile_ammo > 0:
 		s += "🚀%d  " % _missile_ammo
 	if _dmg_mult > 1.001:
@@ -639,17 +739,18 @@ func _buff_suffix() -> String:
 		s += "CAD x%.1f" % _firerate_mult
 	return s.strip_edges()
 
-# Réinitialise les améliorations ramassées (portée RUN) : à l'équipement/dégaine et à la réapparition.
+# Charge le LOADOUT PERSISTANT depuis l'inventaire (à l'équipement/dégaine et à la réapparition). Les bonus ne se
+# réinitialisent PLUS à zéro : ils sont CONSERVÉS + sauvegardés (le bouclier est rempli à sa capacité au départ).
 func _reset_buffs() -> void:
-	_dmg_mult = 1.0
-	_firerate_mult = 1.0
-	_overshield = 0.0
-	_missile_ammo = 0
+	_dmg_mult = Inventory.damage_mult()
+	_firerate_mult = Inventory.firerate_mult()
+	_missile_ammo = Inventory.missiles
+	_overshield = Inventory.shield_cap()
 	_lock_target = null
 	_pickup_msg_t = 0.0
-	GameState.combat_overshield = 0.0
-	GameState.combat_dmg_mult = 1.0
-	GameState.combat_firerate_mult = 1.0
+	GameState.combat_overshield = _overshield
+	GameState.combat_dmg_mult = _dmg_mult
+	GameState.combat_firerate_mult = _firerate_mult
 
 # Le bouclier intercepte-t-il un projectile en `world_pos` ? (déployé, dans le rayon, côté face avant.)
 # Si OUI : feedback (haptique gauche + clink + étincelle) puis retourne true => le bolt meurt sans dégâts.

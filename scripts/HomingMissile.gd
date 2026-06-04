@@ -60,6 +60,38 @@ func _ready() -> void:
 	light.light_energy = 2.4
 	light.shadow_enabled = false
 	add_child(light)
+	# Traînée : particules additives qui restent dans le MONDE (local_coords=false) => sillage derrière l'ogive.
+	var trail := GPUParticles3D.new()
+	trail.amount = 28
+	trail.lifetime = 0.5
+	trail.local_coords = false
+	var pm := ParticleProcessMaterial.new()
+	pm.direction = Vector3(0.0, 0.0, 1.0)   # émission vers l'ARRIÈRE (le vol est vers -Z)
+	pm.spread = 6.0
+	pm.initial_velocity_min = 0.4
+	pm.initial_velocity_max = 1.2
+	pm.gravity = Vector3.ZERO
+	pm.scale_min = 0.5
+	pm.scale_max = 1.0
+	var grad := Gradient.new()
+	grad.set_color(0, Color(0.6, 1.0, 0.7, 0.55))
+	grad.set_color(1, Color(0.4, 0.85, 0.6, 0.0))   # fondu en transparence sur la durée de vie
+	var gt := GradientTexture1D.new()
+	gt.gradient = grad
+	pm.color_ramp = gt
+	trail.process_material = pm
+	var qm := QuadMesh.new()
+	qm.size = Vector2(0.22, 0.22)
+	var tmat := StandardMaterial3D.new()
+	tmat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	tmat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	tmat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	tmat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	tmat.vertex_color_use_as_albedo = true
+	tmat.albedo_color = Color(0.5, 1.0, 0.6)
+	qm.material = tmat
+	trail.draw_pass_1 = qm
+	add_child(trail)
 
 func _process(delta: float) -> void:
 	if GameState.options_open:

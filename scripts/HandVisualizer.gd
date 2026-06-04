@@ -86,17 +86,20 @@ func _process(_dt: float) -> void:
 	var hands := _ht.is_active()
 	if _aim_ray:
 		_aim_ray.visible = not hands   # manette : rayon visible seulement sans mains
-	# Mains-manette visibles en XR uniquement quand le hand-tracking est inactif (fallback manettes).
-	var show_ctrl: bool = GameState.xr_active and not hands
+	# Arme dégainée (GameState.combat_active = _armed) => on MASQUE les mains du joueur : l'arme tenue (main droite)
+	# et le bouclier (main gauche) les remplacent visuellement, sinon les doigts traversent l'arme / le bouclier.
+	var armed: bool = GameState.combat_active
+	# Mains-manette visibles en XR uniquement quand le hand-tracking est inactif (fallback manettes) ET désarmé.
+	var show_ctrl: bool = GameState.xr_active and not hands and not armed
 	for h in _ctrl_hand:
 		_ctrl_hand[h].visible = show_ctrl
-	_update_hand(HandTracking.Hand.LEFT)
-	_update_hand(HandTracking.Hand.RIGHT)
+	_update_hand(HandTracking.Hand.LEFT, armed)
+	_update_hand(HandTracking.Hand.RIGHT, armed)
 
-func _update_hand(hand: int) -> void:
+func _update_hand(hand: int, armed := false) -> void:
 	var joints: Array = _joint_mi[hand]
 	var bones: Array = _bone_mi[hand]
-	if not _ht.is_hand_active(hand):
+	if armed or not _ht.is_hand_active(hand):   # armé => mains masquées (l'arme / le bouclier les remplacent)
 		for mi in joints:
 			mi.visible = false
 		for mi in bones:
