@@ -221,15 +221,20 @@ func _gen_task(coord: Vector2i, lod: int) -> void:
 	# un ArrayMesh existant via commit(existing) hors-thread N'EST PAS thread-safe (modifie
 	# une ressource déjà créée) et provoque un DEADLOCK. Le recyclage se fait au niveau des
 	# NODES TerrainChunk (_pool), qui évite l'essentiel des réallocations.
-	var data := SurfaceGenerator.generate_chunk(seed_local, coord.x, coord.y, anchor_dir, east, north, CHUNK_SIZE, res, phys_radius, vertical_scale, skirt, flow_map)
+	# Perf : UN SEUL PlanetGenerator partagé par generate_chunk + les 4 seeders (au lieu de 5× configure() ≈ 45
+	# FastNoiseLite construits par chunk). Tâche mono-thread => partage sûr ; échantillonnage pur => sortie IDENTIQUE.
+	var pg := PlanetGenerator.new()
+	pg.configure(seed_local)
+	pg.set_flow_map(flow_map)
+	var data := SurfaceGenerator.generate_chunk(seed_local, coord.x, coord.y, anchor_dir, east, north, CHUNK_SIZE, res, phys_radius, vertical_scale, skirt, flow_map, pg)
 	# Semis de végétation DANS la même tâche de fond (zéro calcul de semis sur le main-thread).
-	var veg := VegetationSeeder.seed_chunk(seed_local, coord.x, coord.y, anchor_dir, east, north, CHUNK_SIZE, phys_radius, vertical_scale, flow_map)
+	var veg := VegetationSeeder.seed_chunk(seed_local, coord.x, coord.y, anchor_dir, east, north, CHUNK_SIZE, phys_radius, vertical_scale, flow_map, pg)
 	# Clutter au sol (phase 20 couche B) dans la MÊME tâche de fond (calcul pur, comme la végétation).
-	var clutter := ClutterSeeder.seed_chunk(seed_local, coord.x, coord.y, anchor_dir, east, north, CHUNK_SIZE, phys_radius, vertical_scale, flow_map)
+	var clutter := ClutterSeeder.seed_chunk(seed_local, coord.x, coord.y, anchor_dir, east, north, CHUNK_SIZE, phys_radius, vertical_scale, flow_map, pg)
 	# POI (phase 20 couche C) : décision/placement/nom PUR off-thread (présence rare). null si aucun.
-	var poi := POIDistributor.seed_chunk(seed_local, coord.x, coord.y, palette_id, anchor_dir, east, north, CHUNK_SIZE, phys_radius, vertical_scale, flow_map)
+	var poi := POIDistributor.seed_chunk(seed_local, coord.x, coord.y, palette_id, anchor_dir, east, north, CHUNK_SIZE, phys_radius, vertical_scale, flow_map, pg)
 	# Faune (phase 19) dans la MÊME tâche de fond (calcul pur ; _fauna_roster = lecture seule).
-	var fauna := ChunkFauna.seed_chunk(seed_local, coord.x, coord.y, _fauna_roster, anchor_dir, east, north, CHUNK_SIZE, phys_radius, vertical_scale, flow_map)
+	var fauna := ChunkFauna.seed_chunk(seed_local, coord.x, coord.y, _fauna_roster, anchor_dir, east, north, CHUNK_SIZE, phys_radius, vertical_scale, flow_map, pg)
 	_mutex.lock()
 	_ready_queue.append({"coord": coord, "lod": lod, "mesh": data.mesh, "shape": data.collision_shape, "cell": data.cell_size, "center": data.center, "basis": data.basis, "veg": veg, "clutter": clutter, "poi": poi, "fauna": fauna, "water_mesh": data.water_mesh, "waterfall_mesh": data.waterfall_mesh})
 	_mutex.unlock()
@@ -326,9 +331,13 @@ func _update_morph() -> void:
 	if player == null:
 		return
 	var pw := player.global_position
+	var coarsest := LOD_MAX_DIST.size() - 1   # LOD le plus grossier : morph TOUJOURS 0 (rien de plus grossier au-delà)
 	for coord in _active:
 		var ch: TerrainChunk = _active[coord]
-		ch.set_morph(_morph_factor_for(ch.lod, pw.distance_to(ch.global_position) / CHUNK_SIZE))
+		if ch.lod >= coarsest or ch.lod < 0:
+			ch.set_morph(0.0)   # évite le distance_to + smoothstep par frame pour ces chunks (souvent ~la moitié des actifs)
+		else:
+			ch.set_morph(_morph_factor_for(ch.lod, pw.distance_to(ch.global_position) / CHUNK_SIZE))
 
 func _select_lod(dist: float, current: int) -> int:
 	var base := LOD_RES.size() - 1

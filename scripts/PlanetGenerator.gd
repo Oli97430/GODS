@@ -240,16 +240,17 @@ func sample_elevation(unit_dir: Vector3) -> float:
 	if _flow_map != null:
 		if e < _flow_map.sea_level:   # phase 24 (perf) : océan = érosion nulle + pas de vallée => early-out gratuit
 			return clampf(e, -1.0, ELEV_MAX)
-		# Phase 24 (perf) : UNE seule passe de warp partagée par tous les échantillonnages (chemin TRÈS chaud).
+		# Phase 24 (perf) : UNE seule passe de warp + UNE seule conversion lat/lon partagées par tous les champs.
 		var wdir := _flow_map.warp(unit_dir)
-		e += _flow_map.erosion_raw(wdir)   # phase 23 : creusement des vallées (≤ 0)
+		var fm: Dictionary = _flow_map.sample_all(wdir)   # erosion + water_prox + is_lake + lake_level + filled en 1 lat/lon
+		e += fm.erosion   # phase 23 : creusement des vallées (≤ 0)
 		# Phase 24 (eau) : CREUSE une vraie vallée/bassin près de l'eau (proximité PRÉ-CALCULÉE, plus de scan).
-		var prox := _flow_map.water_prox_raw(wdir)
-		var lake := _flow_map.is_lake_raw(wdir)
+		var prox: float = fm.water_prox
+		var lake: bool = fm.is_lake
 		if lake:
 			prox = 1.0
 		if prox > 0.001:
-			var wl: float = _flow_map.lake_level_raw(wdir) if lake else _flow_map.filled_raw(wdir)
+			var wl: float = fm.lake_level if lake else fm.filled
 			var vd: float = PlanetFlowMap.LAKE_DEPTH if lake else PlanetFlowMap.VALLEY_DEPTH   # lacs plus profonds que les vallées de rivière
 			var floor_t := minf(e, wl - vd)   # fond de vallée/lac (ne surélève jamais le sol)
 			e = lerpf(e, floor_t, clampf(prox * WATER_CONFORM, 0.0, 0.95))

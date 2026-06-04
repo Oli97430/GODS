@@ -102,10 +102,13 @@ static func generate(seed_local: int, landing_dir: Vector3, resolution: int = DE
 # chunk (heightfield) ; le node sera placé à Transform3D(basis, center) en espace-
 # planète, sous PlanetRoot. Déterministe + thread-safe. Renvoie
 # { mesh, collision_shape (trimesh ConcavePolygonShape3D), cell_size, center, basis }.
-static func generate_chunk(seed_local: int, cx: int, cz: int, anchor_dir: Vector3, east: Vector3, north: Vector3, chunk_size: float = DEFAULT_PATCH_SIZE, resolution: int = DEFAULT_RESOLUTION, phys_radius: float = DEFAULT_PLANET_PHYS_RADIUS, vertical_scale: float = DEFAULT_VERTICAL_SCALE, skirt_depth: float = 0.0, flow_map: PlanetFlowMap = null) -> Dictionary:
-	var pg := PlanetGenerator.new()
-	pg.configure(seed_local)
-	pg.set_flow_map(flow_map)   # phase 23 : terrain érodé + rivières/lacs teintés (cohérent orbite↔sol)
+static func generate_chunk(seed_local: int, cx: int, cz: int, anchor_dir: Vector3, east: Vector3, north: Vector3, chunk_size: float = DEFAULT_PATCH_SIZE, resolution: int = DEFAULT_RESOLUTION, phys_radius: float = DEFAULT_PLANET_PHYS_RADIUS, vertical_scale: float = DEFAULT_VERTICAL_SCALE, skirt_depth: float = 0.0, flow_map: PlanetFlowMap = null, shared_pg: PlanetGenerator = null) -> Dictionary:
+	# Perf : réutilise le PlanetGenerator partagé de _gen_task si fourni (sinon en crée un — usage solo/test).
+	var pg: PlanetGenerator = shared_pg
+	if pg == null:
+		pg = PlanetGenerator.new()
+		pg.configure(seed_local)
+		pg.set_flow_map(flow_map)   # phase 23 : terrain érodé + rivières/lacs teintés (cohérent orbite↔sol)
 	var sea := PlanetGenerator.DEFAULT_SEA_LEVEL
 	var cell := chunk_size / float(resolution)
 	var w := resolution + 1

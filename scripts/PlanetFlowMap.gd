@@ -208,6 +208,42 @@ func lake_level_raw(wdir: Vector3) -> float:
 func river_raw(wdir: Vector3) -> float:
 	return _bilerp(river_strength, wdir)
 
+# Chemin CHAUD (sample_elevation) : échantillonne TOUS les champs hydrologiques à wdir en UNE SEULE conversion
+# lat/lon (au lieu de 4-5 re-conversions asin/atan2 par vertex). Valeurs STRICTEMENT identiques aux *_raw
+# (mêmes indices bilinéaires + même cellule la plus proche) => déterminisme/cohérence orbite↔sol INCHANGÉS.
+func sample_all(wdir: Vector3) -> Dictionary:
+	var lat := asin(clampf(wdir.y, -1.0, 1.0))
+	var lon := atan2(wdir.z, wdir.x)
+	if lon < 0.0:
+		lon += TAU
+	var cf := lon / TAU * float(w) - 0.5
+	var rf := (PI * 0.5 - lat) / PI * float(h) - 0.5
+	var c0 := floori(cf)
+	var r0 := floori(rf)
+	var fc := cf - float(c0)
+	var fr := rf - float(r0)
+	var c0w := _wrapc(c0)
+	var c1w := _wrapc(c0 + 1)
+	var r0c := clampi(r0, 0, h - 1)
+	var r1c := clampi(r0 + 1, 0, h - 1)
+	var i00 := r0c * w + c0w
+	var i10 := r0c * w + c1w
+	var i01 := r1c * w + c0w
+	var i11 := r1c * w + c1w
+	var nidx := clampi(int(round(rf)), 0, h - 1) * w + _wrapc(int(round(cf)))   # = _nearest_idx(wdir)
+	return {
+		"erosion": _bilerp_idx(erosion_mod, i00, i10, i01, i11, fc, fr),
+		"water_prox": _bilerp_idx(water_prox, i00, i10, i01, i11, fc, fr),
+		"is_lake": (not is_lake.is_empty()) and is_lake[nidx] != 0,
+		"lake_level": _bilerp_idx(lake_level, i00, i10, i01, i11, fc, fr),
+		"filled": _bilerp_idx(filled, i00, i10, i01, i11, fc, fr),
+	}
+
+func _bilerp_idx(field: PackedFloat32Array, i00: int, i10: int, i01: int, i11: int, fc: float, fr: float) -> float:
+	if field.is_empty():
+		return 0.0
+	return lerpf(lerpf(field[i00], field[i10], fc), lerpf(field[i01], field[i11], fc), fr)
+
 # Pré-calcule la PROXIMITÉ d'eau (0..1) dilatée autour des rivières/lacs (1 à l'eau, décroît sur ~4 cellules).
 # Remplace le scan de voisinage runtime de sample_elevation par 1 bilerp. Off-thread, une seule fois.
 func _build_water_prox() -> void:

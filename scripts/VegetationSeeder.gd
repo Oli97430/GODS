@@ -24,10 +24,12 @@ const WIND_LEAN_AZIMUTH := 0.7   # phase 24 : azimut du vent dominant (les tronc
 
 # Renvoie { variant:int -> Array[Transform3D] } en repère LOCAL du chunk (mêmes
 # (anchor_dir, east, north, phys_radius, vertical_scale) que SurfaceGenerator.generate_chunk).
-static func seed_chunk(seed_local: int, cx: int, cz: int, anchor_dir: Vector3, east: Vector3, north: Vector3, chunk_size: float, phys_radius: float, vertical_scale: float, flow_map: PlanetFlowMap = null) -> Dictionary:
-	var pg := PlanetGenerator.new()
-	pg.configure(seed_local)
-	pg.set_flow_map(flow_map)   # phase 23 : la végétation suit le terrain érodé (pas de flottement)
+static func seed_chunk(seed_local: int, cx: int, cz: int, anchor_dir: Vector3, east: Vector3, north: Vector3, chunk_size: float, phys_radius: float, vertical_scale: float, flow_map: PlanetFlowMap = null, shared_pg: PlanetGenerator = null) -> Dictionary:
+	var pg: PlanetGenerator = shared_pg
+	if pg == null:
+		pg = PlanetGenerator.new()
+		pg.configure(seed_local)
+		pg.set_flow_map(flow_map)   # phase 23 : la végétation suit le terrain érodé (pas de flottement)
 	var sea := PlanetGenerator.DEFAULT_SEA_LEVEL
 
 	var rng := RandomNumberGenerator.new()

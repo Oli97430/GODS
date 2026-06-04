@@ -20,13 +20,15 @@ const SLOPE_EPS := 4.0      # mètres : pas pour l'estimation de pente
 
 # Renvoie Array de { species_idx:int, local:Vector3, yaw:float } en repère LOCAL du chunk (mêmes
 # (anchor_dir, east, north, phys_radius, vertical_scale) que SurfaceGenerator.generate_chunk).
-static func seed_chunk(seed_local: int, cx: int, cz: int, roster: Array, anchor_dir: Vector3, east: Vector3, north: Vector3, chunk_size: float, phys_radius: float, vertical_scale: float, flow_map: PlanetFlowMap = null) -> Array:
+static func seed_chunk(seed_local: int, cx: int, cz: int, roster: Array, anchor_dir: Vector3, east: Vector3, north: Vector3, chunk_size: float, phys_radius: float, vertical_scale: float, flow_map: PlanetFlowMap = null, shared_pg: PlanetGenerator = null) -> Array:
 	var out := []
 	if roster.is_empty():
 		return out
-	var pg := PlanetGenerator.new()
-	pg.configure(seed_local)
-	pg.set_flow_map(flow_map)   # phase 23 : la faune suit le terrain érodé
+	var pg: PlanetGenerator = shared_pg
+	if pg == null:
+		pg = PlanetGenerator.new()
+		pg.configure(seed_local)
+		pg.set_flow_map(flow_map)   # phase 23 : la faune suit le terrain érodé
 	var sea := PlanetGenerator.DEFAULT_SEA_LEVEL
 
 	var rng := RandomNumberGenerator.new()

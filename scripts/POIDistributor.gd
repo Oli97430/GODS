@@ -53,15 +53,17 @@ const W := {
 }
 
 # Renvoie un POIInstance (descripteur, repère LOCAL du chunk) ou null si pas de POI dans ce chunk.
-static func seed_chunk(seed_local: int, cx: int, cz: int, palette_id: int, anchor_dir: Vector3, east: Vector3, north: Vector3, chunk_size: float, phys_radius: float, vertical_scale: float, flow_map: PlanetFlowMap = null) -> POIInstance:
+static func seed_chunk(seed_local: int, cx: int, cz: int, palette_id: int, anchor_dir: Vector3, east: Vector3, north: Vector3, chunk_size: float, phys_radius: float, vertical_scale: float, flow_map: PlanetFlowMap = null, shared_pg: PlanetGenerator = null) -> POIInstance:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = _chunk_seed(seed_local, cx, cz)
 	if rng.randf() > POI_CHANCE:
 		return null
 
-	var pg := PlanetGenerator.new()
-	pg.configure(seed_local)
-	pg.set_flow_map(flow_map)   # phase 23 : les POI suivent le terrain érodé
+	var pg: PlanetGenerator = shared_pg
+	if pg == null:
+		pg = PlanetGenerator.new()
+		pg.configure(seed_local)
+		pg.set_flow_map(flow_map)   # phase 23 : les POI suivent le terrain érodé
 	var sea := PlanetGenerator.DEFAULT_SEA_LEVEL
 
 	# Position vers le CENTRE du chunk (jitter borné => le POI ne chevauche pas les bords voisins).
