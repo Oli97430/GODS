@@ -5,6 +5,19 @@ Format: [Keep a Changelog](https://keepachangelog.com/) · Versioning: [SemVer](
 
 ## [Unreleased]
 
+## [0.10.0] — 2026-06-04
+### Added
+- **Homing-missile lock-on polish** — hold your aim on a drone to acquire the lock (a camera-facing ring tightens from yellow to green with an acquisition beep), fire with a dedicated launch whoosh; the missile trails a glowing exhaust. "LOCK" readout cue.
+- **Shoulder-holster cues** — holster markers glow and a haptic tick fires as your hand nears a body holster, making the VR draw/stow gesture discoverable.
+- **Hands hidden when armed** — your VR hands disappear while a weapon is drawn (the weapon + shield replace them).
+- **Enemy variety** — heavy (tanky), darter (fast / evasive) and shielded (frontal shield — flank it or missile it) drones, unlocked across waves.
+- **Boss wave** every 5th wave — a single giant armored drone, vulnerable only during its telegraphed charge window (or to homing missiles), with a health bar and a big reward.
+- **Co-op avatars** now use skeletal arm IK (the model's arms reach toward the partner's tracked hands), show the real equipped weapon, and a floating name tag.
+- **Persistent inventory** — looted upgrades (damage, fire-rate, shield capacity, missiles) are KEPT across deaths and sessions and saved to disk; your character progresses over runs.
+- **Underwater seabed decor** — rocks, shells, starfish and bioluminescent coral & anemones across the ocean floor near coasts (deterministic, glowing in the depths).
+### Changed
+- Lighter low-poly meshes for common drones (perf); detailed model kept for heavy / shielded / boss.
+
 ## [0.9.0] — 2026-06-04
 ### Added
 - **Homing-missile secondary fire** for the plasma rifle — aim at a drone to **auto-lock** (a ring marks the target), pull the **left trigger** (VR) / middle-mouse (desktop) to launch a seeking missile that chases it down and destroys it. Ammo is **looted** from downed drones, and it works in co-op (hits route to the host).
@@ -45,7 +58,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/) · Versioning: [SemVer](
 ### Added
 - Initial early-access release: seamless galaxy → system → planet → surface explorer, deterministic by seed, PCVR + desktop.
 
-[Unreleased]: https://github.com/Oli97430/GODS/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/Oli97430/GODS/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/Oli97430/GODS/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/Oli97430/GODS/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/Oli97430/GODS/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/Oli97430/GODS/compare/v0.6.0...v0.7.0

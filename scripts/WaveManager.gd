@@ -9,6 +9,13 @@ const SPAWN_STAGGER := 0.12 # s entre deux apparitions de drone (spawn ÉCHELONN
 const DROP_CHANCE := 0.5    # probabilité qu'un drone abattu lâche une amélioration ramassable
 const MAX_DRONES := 4       # plafond de drones SIMULTANÉS (rythme = + de PV par drone, pas + de nombre)
 const ARM_GRACE := 0.6      # tolérance de désarmement BREF (changement d'arme) avant de réinitialiser la session
+# Archétypes (ints partagés avec Drone.gd) + cadence des vagues-boss.
+const ARCH_STANDARD := 0
+const ARCH_HEAVY := 1
+const ARCH_DARTER := 2
+const ARCH_SHIELDED := 3
+const ARCH_BOSS := 4
+const BOSS_EVERY := 5       # une vague-BOSS (un seul drone géant) toutes les 5 vagues
 
 var _player: Node3D
 var _drones: Array = []
@@ -20,6 +27,7 @@ var _to_spawn := 0             # drones restant à faire apparaître pour la vag
 var _spawn_cd := 0.0           # minuterie d'échelonnement des apparitions
 var _disarm_t := 0.0           # temps écoulé désarmé (grâce anti-reset lors d'un changement d'arme)
 var _rng := RandomNumberGenerator.new()
+var _spawn_queue: Array = []   # archétypes restant à faire apparaître pour la vague en cours
 
 func setup(player: Node3D) -> void:
 	_player = player
@@ -82,21 +90,46 @@ func _start_wave() -> void:
 	_wave += 1
 	GameState.combat_wave = _wave
 	AudioEngine.play_wave_start()   # sting « ça commence »
-	_to_spawn = mini(2 + _wave, MAX_DRONES)   # 3 puis PLAFONNÉ à MAX_DRONES — apparition ÉCHELONNÉE dans _process
+	# Toutes les BOSS_EVERY vagues : un seul drone GÉANT. Sinon, un mélange d'archétypes (variété croissante).
+	if _wave % BOSS_EVERY == 0:
+		_spawn_queue = [ARCH_BOSS]
+	else:
+		_spawn_queue = _roll_composition()
+	_to_spawn = _spawn_queue.size()   # apparition ÉCHELONNÉE dans _process
 	_spawn_cd = 0.0         # le 1er sort immédiatement
 	_timer = WAVE_GAP
 	_awaiting_clear = true   # cette vague nettoyée => soin
 
+# Composition d'une vague normale : surtout des standards, avec rapides/lourds/boucliers débloqués par paliers.
+func _roll_composition() -> Array:
+	var n := mini(2 + _wave, MAX_DRONES)
+	var out: Array = []
+	for i in n:
+		var r := _rng.randf()
+		var a := ARCH_STANDARD
+		if _wave >= 4 and r < 0.18:
+			a = ARCH_SHIELDED
+		elif _wave >= 3 and r < 0.38:
+			a = ARCH_HEAVY
+		elif _wave >= 2 and r < 0.60:
+			a = ARCH_DARTER
+		out.append(a)
+	return out
+
 func _spawn_drone() -> void:
 	if _player == null:
 		return
+	var arch := ARCH_STANDARD
+	if not _spawn_queue.is_empty():
+		arch = _spawn_queue.pop_front()
+	var boss := arch == ARCH_BOSS
 	var fwd := CombatUtil.front_dir(_player)
-	var ang := _rng.randf_range(-1.0, 1.0) * deg_to_rad(85.0)   # spawn DANS le cône avant (±85°)
+	var ang := _rng.randf_range(-1.0, 1.0) * deg_to_rad(35.0 if boss else 85.0)   # boss plus centré ; autres dans le cône avant
 	var dir := fwd.rotated(Vector3.UP, ang)
-	var dist := 26.0 + _rng.randf() * 12.0
-	var pos := _player.global_position + dir * dist + Vector3.UP * _rng.randf_range(3.0, 12.0)
+	var dist := (40.0 if boss else 26.0) + _rng.randf() * (6.0 if boss else 12.0)
+	var pos := _player.global_position + dir * dist + Vector3.UP * _rng.randf_range(5.0 if boss else 3.0, 14.0 if boss else 12.0)
 	var d = preload("res://scripts/Drone.gd").new()
-	d.setup(_player, pos, _wave)
+	d.setup(_player, pos, _wave, arch)
 	d.fire_cb = _on_drone_fire
 	d.died.connect(_on_drone_died)
 	add_child(d)
@@ -125,18 +158,24 @@ func _on_bolt_hit(_pos: Vector3, dmg: float, vel: Vector3) -> void:
 	if _player != null and _player.has_method("enemy_hit"):
 		_player.enemy_hit(dmg, -vel)   # -vel = direction d'où vient le tir (vers le tireur)
 
-func _on_drone_died(pos: Vector3) -> void:
-	GameState.combat_score += 1   # +1 drone détruit
+func _on_drone_died(pos: Vector3, arch: int) -> void:
+	GameState.combat_score += (10 if arch == ARCH_BOSS else 1)   # le boss vaut gros
 	if _player != null and _player.has_method("on_kill"):
 		_player.on_kill()          # confirmation (tic brillant + haptique) côté joueur
-	# Loot : avec une chance, une amélioration ramassable tombe au point de destruction (enfant => nettoyée au _clear).
-	if _rng.randf() < DROP_CHANCE:
-		var kind := _roll_pickup_kind()
-		var p = preload("res://scripts/Pickup.gd").new()
-		p.setup(_player, kind, pos)
-		add_child(p)
-		if NetworkManager.is_active() and NetworkManager.is_host():
-			CoopCombat.host_register_pickup(p, kind)   # coop : réplique le butin aux invités (autorité hôte)
+	if arch == ARCH_BOSS:
+		AudioEngine.play_wave_start()                 # fanfare de victoire (réutilise le sting)
+		_drop_pickup(pos, 4)                          # butin GARANTI : missiles
+		_drop_pickup(pos + Vector3.RIGHT * 1.5, 0)    # + soin
+	elif _rng.randf() < DROP_CHANCE:
+		_drop_pickup(pos, _roll_pickup_kind())
+
+# Lâche une amélioration ramassable (enfant => nettoyée au _clear) + réplication coop côté hôte.
+func _drop_pickup(pos: Vector3, kind: int) -> void:
+	var p = preload("res://scripts/Pickup.gd").new()
+	p.setup(_player, kind, pos)
+	add_child(p)
+	if NetworkManager.is_active() and NetworkManager.is_host():
+		CoopCombat.host_register_pickup(p, kind)   # coop : réplique le butin aux invités (autorité hôte)
 
 # Tirage pondéré du type d'amélioration : soin un peu plus fréquent, puis dégâts / cadence / bouclier.
 func _roll_pickup_kind() -> int:
