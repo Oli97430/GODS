@@ -2,7 +2,7 @@
 
 *Français : [README.fr.md](README.fr.md)*
 
-**GODS** is a seamless, deterministic, **contemplative** space explorer for **PCVR** (and desktop) built in **Godot 4.6.2**. No combat, no menus in the way — just exploration across four continuous scales: **galaxy → star system → planet (orbit) → planet surface (on foot)**. Everything is **generated procedurally from a seed**, so the same seed always yields the same universe, and what you see from orbit is exactly what you walk on at ground level.
+**GODS** is a seamless, deterministic, **contemplative** space explorer for **PCVR** (and desktop) built in **Godot 4.6.2**. At its heart it's pure exploration — no objectives, no menus in the way — across four continuous scales: **galaxy → star system → planet (orbit) → planet surface (on foot)**, with an **optional, opt-in arcade combat mode** and **online co-op** layered on top for when you want them. Everything is **generated procedurally from a seed**, so the same seed always yields the same universe, and what you see from orbit is exactly what you walk on at ground level.
 
 > Put on a headset, pick a star, dive toward a planet, land on it, and walk a river to the sea while the sun crosses the sky.
 
@@ -37,6 +37,13 @@
 - **OpenXR** (Virtual Desktop / SteamVR / native) with **controllers or hand tracking**.
 - **bHaptics TactSuit X40** vest support (graceful no-op if absent).
 - **Desktop fallback** — runs without any headset.
+
+### Optional combat & online co-op *(opt-in)*
+- **Holstered by default** — equip a weapon from the wrist computer and an arcade encounter begins; holster it and the contemplative explorer is exactly as before.
+- **3 weapons** — revolver (hitscan), **plasma rifle** (traveling bolts + a real optical VR scope you look through), **grenade launcher** (ballistic AoE) — each with its own recoil, sound and sight.
+- **Enemy drone waves** that weave in front of you, telegraph their shots, and drop **upgrade loot** (heal / damage× / fire-rate× / overshield).
+- **bHaptics X40** combat feedback (chest recoil, directional damage, kill/heal/shield cues).
+- **Online co-op** — host or join by IP (P2P direct, ENet). Same seed → same universe, so you share the planet, see each other's avatars (head + hands), and fight the drone waves & share loot together. Strictly opt-in; **solo play is untouched**.
 
 ---
 
@@ -93,6 +100,17 @@ That's it.
 | **B (right)** | Ascend one scale |
 | **Grip** | Grab to rotate/move the holographic view |
 | **Right stick (up/down)** | Zoom |
+
+---
+
+## 👥 Co-op (optional)
+
+Play with a friend — **opt-in**, peer-to-peer by IP (LAN, or port-forward **7711** for internet). Worlds are deterministic, so only players, drones and loot travel the network.
+
+- **Desktop:** press **F2** for the co-op panel → **Host**, or type the host's IP and **Join**.
+- **VR:** use the **COOP** row on the wrist computer — Host / Join / Quit (the host IP is set once on the desktop and remembered).
+
+The host flies down to a planet; the joiner lands on the **same spot** and you explore — and fight the drone waves — together.
 
 ---
 

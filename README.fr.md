@@ -2,7 +2,7 @@
 
 *English: [README.md](README.md)*
 
-**GODS** est un explorateur spatial **contemplatif**, sans couture et déterministe, pour **PCVR** (et bureau), réalisé avec **Godot 4.6.2**. Pas de combat, pas de menus qui gênent — juste de l'exploration à travers quatre échelles continues : **galaxie → système stellaire → planète (orbite) → surface de planète (à pied)**. Tout est **généré procéduralement à partir d'un seed** : un même seed produit toujours le même univers, et ce que l'on voit depuis l'orbite est exactement ce que l'on foule au sol.
+**GODS** est un explorateur spatial **contemplatif**, sans couture et déterministe, pour **PCVR** (et bureau), réalisé avec **Godot 4.6.2**. Au cœur, c'est de l'exploration pure — sans objectifs, sans menus qui gênent — à travers quatre échelles continues : **galaxie → système stellaire → planète (orbite) → surface de planète (à pied)**, avec un **mode combat arcade optionnel (opt-in)** et une **coopération en ligne** par-dessus, quand on en a envie. Tout est **généré procéduralement à partir d'un seed** : un même seed produit toujours le même univers, et ce que l'on voit depuis l'orbite est exactement ce que l'on foule au sol.
 
 > Mets un casque, choisis une étoile, plonge vers une planète, pose-toi, et remonte une rivière jusqu'à la mer pendant que le soleil traverse le ciel.
 
@@ -37,6 +37,13 @@
 - **OpenXR** (Virtual Desktop / SteamVR / natif) avec **manettes ou suivi des mains**.
 - Support du gilet **bHaptics TactSuit X40** (no-op gracieux s'il est absent).
 - **Repli bureau** — fonctionne sans aucun casque.
+
+### Combat & coopération en ligne *(opt-in)*
+- **Arme rangée par défaut** — équipe une arme depuis la montre et un affrontement arcade commence ; range-la et l'explorateur contemplatif est exactement comme avant.
+- **3 armes** — revolver (hitscan), **fusil à plasma** (bolts voyageurs + **vraie lunette optique VR**), **lance-grenades** (explosion de zone) — recul, son et viseur propres.
+- **Vagues de drones ennemis** qui évoluent devant toi, télégraphient leurs tirs et lâchent du **loot d'amélioration** (soin / dégâts× / cadence× / surbouclier).
+- **Gilet bHaptics X40** en combat (recul dans la poitrine, dégâts directionnels, signaux kill/soin/bouclier).
+- **Coopération en ligne** — héberger ou rejoindre par IP (P2P direct, ENet). Même seed → même univers : vous partagez la planète, voyez vos avatars (tête + mains), affrontez les vagues et partagez le loot ensemble. Strictement opt-in ; **le solo est intact**.
 
 ---
 
@@ -93,6 +100,17 @@ C'est tout.
 | **B (droite)** | Remonter d'une échelle |
 | **Grip** | Saisir pour tourner/déplacer l'hologramme |
 | **Stick droit (haut/bas)** | Zoom |
+
+---
+
+## 👥 Coopération (optionnel)
+
+Joue avec un ami — **opt-in**, pair-à-pair par IP (LAN, ou redirige le port **7711** pour Internet). Le monde est déterministe : seuls les joueurs, drones et loot transitent par le réseau.
+
+- **Bureau :** appuie sur **F2** pour le panneau coop → **Héberger**, ou saisis l'IP de l'hôte et **Rejoindre**.
+- **VR :** utilise la rangée **COOP** de la montre — Héberger / Rejoindre / Quitter (l'IP de l'hôte se règle une fois au bureau et est mémorisée).
+
+L'hôte descend sur une planète ; l'invité atterrit au **même endroit** et vous explorez — et combattez les vagues — ensemble.
 
 ---
 
