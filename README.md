@@ -165,6 +165,6 @@ Comments are in **French**; identifiers are in **English**.
 
 Created by **Oli97430**. Built with [Godot Engine](https://godotengine.org) 4.6.2.
 
-License: add your preferred license here (e.g. MIT) before sharing publicly.
+License: **[MIT](LICENSE)** for this project's own code & assets. Bundled add-ons under `addons/` keep their own licenses (sky_3d: MIT; Godot OpenXR Vendors: Apache-2.0).
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)

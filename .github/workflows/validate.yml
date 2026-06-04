@@ -1,0 +1,43 @@
+name: Validate
+
+# Ouvre le projet en headless a chaque push/PR sur main : importe les ressources et compile tous les
+# scripts. Attrape les scenes/scripts casses (UID manquants, refs .tscn brisees, erreurs de parse) AVANT
+# une release, sur un clone PROPRE (ce que ta machine ne voit pas grace a son cache .godot/).
+# Pas d'export Windows ici (depend de D3D12 + DLL OpenXR + templates locaux) : ca reste sur ta machine via release.ps1.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  validate:
+    name: Headless import & script check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download Godot 4.6.2 (linux editor, headless-capable)
+        run: |
+          set -e
+          URL="https://github.com/godotengine/godot/releases/download/4.6.2-stable/Godot_v4.6.2-stable_linux.x86_64.zip"
+          curl -fL -o godot.zip "$URL"
+          unzip -q godot.zip
+          mv Godot_v4.6.2-stable_linux.x86_64 godot
+          chmod +x godot
+          ./godot --version
+
+      - name: Import resources & compile scripts (headless)
+        run: |
+          set +e
+          # --editor --quit declenche l'import complet + la compilation de tous les scripts.
+          ./godot --headless --path . --editor --quit 2>&1 | tee validate.log
+          echo "---- scan des erreurs script/scene ----"
+          # On ignore les erreurs XR benignes (pas de casque sur le runner CI).
+          if grep -iE 'SCRIPT ERROR|PARSE ERROR|Failed to load script|Failed to instantiate' validate.log \
+             | grep -viE 'XR_ERROR|xrCreateInstance|OpenXR'; then
+            echo "::error::Godot a signale des erreurs script/scene (voir le log ci-dessus)."
+            exit 1
+          fi
+          echo "OK : aucune erreur script/scene."

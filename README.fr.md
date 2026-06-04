@@ -165,6 +165,6 @@ Les commentaires sont en **français** ; les identifiants en **anglais**.
 
 Créé par **Oli97430**. Réalisé avec [Godot Engine](https://godotengine.org) 4.6.2.
 
-Licence : ajoute ta licence préférée ici (ex. MIT) avant un partage public.
+Licence : **[MIT](LICENSE)** pour le code & les assets propres au projet. Les add-ons sous `addons/` gardent leur licence (sky_3d : MIT ; Godot OpenXR Vendors : Apache-2.0).
 
 🤖 Généré avec [Claude Code](https://claude.com/claude-code)
