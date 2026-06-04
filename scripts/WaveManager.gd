@@ -131,7 +131,7 @@ func _spawn_drone() -> void:
 	var d = preload("res://scripts/Drone.gd").new()
 	d.setup(_player, pos, _wave, arch)
 	d.fire_cb = _on_drone_fire
-	d.died.connect(_on_drone_died)
+	d.died.connect(_on_drone_died.bind(d))   # bind le drone : le handler lit son archetype (signal `died` minimal)
 	add_child(d)
 	_drones.append(d)
 	if NetworkManager.is_active() and NetworkManager.is_host():
@@ -158,7 +158,8 @@ func _on_bolt_hit(_pos: Vector3, dmg: float, vel: Vector3) -> void:
 	if _player != null and _player.has_method("enemy_hit"):
 		_player.enemy_hit(dmg, -vel)   # -vel = direction d'où vient le tir (vers le tireur)
 
-func _on_drone_died(pos: Vector3, arch: int) -> void:
+func _on_drone_died(pos: Vector3, d) -> void:
+	var arch: int = d.archetype   # drone encore valide (queue_free différé) => lecture directe de l'archétype
 	GameState.combat_score += (10 if arch == ARCH_BOSS else 1)   # le boss vaut gros
 	if _player != null and _player.has_method("on_kill"):
 		_player.on_kill()          # confirmation (tic brillant + haptique) côté joueur

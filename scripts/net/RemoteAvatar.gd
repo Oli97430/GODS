@@ -32,6 +32,11 @@ var _b_hand_r := -1
 # Modèles d'arme tenus (chargés paresseusement) + étiquette de nom.
 var _wmodels := {}              # id -> Node3D
 var _name_tag: Label3D = null
+# IK : poses de repos mises en CACHE (constantes => calculées une fois dans _setup_skeleton, jamais par frame).
+var _arm_ur := {}       # upper_idx -> pose de repos GLOBALE de l'épaule (Transform3D)
+var _arm_pinv := {}     # upper_idx -> inverse de la pose de repos globale du PARENT (Transform3D)
+var _rest_pose := {}    # bone_idx -> pose de repos LOCALE (Transform3D)
+var _arms_resting := false
 
 func _ready() -> void:
 	head = _make(_capsule(0.12, 0.30), Color(0.55, 0.68, 0.95))
@@ -54,36 +59,13 @@ func _ready() -> void:
 		_setup_skeleton()
 	_make_name_tag()
 
-# Auto-échelle : mesure l'AABB combinée du modèle (à l'échelle 1) et la ramène à TARGET_HEIGHT.
+# Auto-échelle : mesure l'AABB combinée du modèle (helper partagé) et la ramène à TARGET_HEIGHT.
 func _fit_body() -> void:
-	var aabb := _model_aabb()
+	var r := CombatUtil.scene_aabb(_body, Transform3D.IDENTITY)
+	var aabb: AABB = r.box if r.has else AABB(Vector3(-0.3, 0.0, -0.3), Vector3(0.6, TARGET_HEIGHT, 0.6))
 	var h: float = maxf(aabb.size.y, 0.001)
 	_body_scale = TARGET_HEIGHT / h
 	_head_top = (aabb.position.y + aabb.size.y) * _body_scale   # sommet (tête) au-dessus de l'origine, à l'échelle
-
-func _model_aabb() -> AABB:
-	return _node_aabb(_body)
-
-func _node_aabb(root: Node) -> AABB:
-	var out := AABB()
-	var first := true
-	for n in _descendants(root):
-		if n is MeshInstance3D and (n as MeshInstance3D).mesh != null:
-			var wa: AABB = (root as Node3D).global_transform.affine_inverse() * (n as MeshInstance3D).global_transform * (n as MeshInstance3D).get_aabb()
-			if first:
-				out = wa
-				first = false
-			else:
-				out = out.merge(wa)
-	if first:
-		out = AABB(Vector3(-0.3, 0.0, -0.3), Vector3(0.6, TARGET_HEIGHT, 0.6))
-	return out
-
-func _descendants(n: Node) -> Array:
-	var o := [n]
-	for c in n.get_children():
-		o += _descendants(c)
-	return o
 
 # Cache le squelette + les indices des os de bras/mains (par PRÉFIXE de nom, robuste aux suffixes type "_09").
 func _setup_skeleton() -> void:
@@ -103,6 +85,16 @@ func _setup_skeleton() -> void:
 			_b_hand_l = i
 		elif nm.begins_with("Hand.R"):
 			_b_hand_r = i
+
+	# Pré-calcule les poses de repos CONSTANTES : épaules globales + inverse parent (aim), repos local (repos).
+	for ub in [_b_upper_l, _b_upper_r]:
+		if ub >= 0:
+			_arm_ur[ub] = _skel.get_bone_global_rest(ub)
+			var par := _skel.get_bone_parent(ub)
+			_arm_pinv[ub] = (_skel.get_bone_global_rest(par) if par >= 0 else Transform3D.IDENTITY).affine_inverse()
+	for bb in [_b_upper_l, _b_upper_r, _b_hand_l, _b_hand_r]:
+		if bb >= 0:
+			_rest_pose[bb] = _skel.get_bone_rest(bb)
 
 func _find_skel(n: Node):
 	if n is Skeleton3D:
@@ -144,11 +136,14 @@ func _process(_dt: float) -> void:
 # --- IK des bras : place les mains (os racine) sur les mains trackées + oriente les hauts de bras vers elles ---
 func _update_arms() -> void:
 	if not _hands_on:
-		_rest_arm(_b_upper_l)
-		_rest_arm(_b_hand_l)
-		_rest_arm(_b_upper_r)
-		_rest_arm(_b_hand_r)
+		if not _arms_resting:   # ne replace les bras au repos qu'UNE fois (transition armé -> désarmé)
+			_rest_arm(_b_upper_l)
+			_rest_arm(_b_hand_l)
+			_rest_arm(_b_upper_r)
+			_rest_arm(_b_hand_r)
+			_arms_resting = true
 		return
+	_arms_resting = false
 	var inv := _skel.global_transform.affine_inverse()
 	_aim_arm(_b_upper_l, _b_hand_l, lhand, inv)
 	_aim_arm(_b_upper_r, _b_hand_r, rhand, inv)
@@ -162,8 +157,8 @@ func _aim_arm(upper: int, hand_b: int, hand_node: MeshInstance3D, inv: Transform
 	_skel.set_bone_pose_rotation(hand_b, hl.basis.orthonormalized().get_rotation_quaternion())
 	if upper < 0:
 		return
-	# Haut de bras : +Y (axe long de l'os, convention Blender) pointe vers la main.
-	var ur := _skel.get_bone_global_rest(upper)
+	# Haut de bras : +Y (axe long de l'os, convention Blender) pointe vers la main. Poses de repos en CACHE.
+	var ur: Transform3D = _arm_ur[upper]
 	var dir := hl.origin - ur.origin
 	if dir.length() < 0.001:
 		return
@@ -172,15 +167,13 @@ func _aim_arm(upper: int, hand_b: int, hand_node: MeshInstance3D, inv: Transform
 	var xv := ref.cross(dir).normalized()
 	var zv := xv.cross(dir).normalized()
 	var gb := Basis(xv, dir, zv)   # colonne Y = dir
-	var par := _skel.get_bone_parent(upper)
-	var pg := _skel.get_bone_global_rest(par) if par >= 0 else Transform3D.IDENTITY
-	var loc := pg.affine_inverse() * Transform3D(gb, ur.origin)
+	var loc := (_arm_pinv[upper] as Transform3D) * Transform3D(gb, ur.origin)
 	_skel.set_bone_pose_rotation(upper, loc.basis.orthonormalized().get_rotation_quaternion())
 
 func _rest_arm(b: int) -> void:
-	if b < 0:
+	if b < 0 or not _rest_pose.has(b):
 		return
-	var r := _skel.get_bone_rest(b)
+	var r: Transform3D = _rest_pose[b]
 	_skel.set_bone_pose_position(b, r.origin)
 	_skel.set_bone_pose_rotation(b, r.basis.get_rotation_quaternion())
 
@@ -272,7 +265,8 @@ func _ensure_weapon_model(id: int):
 		return null
 	var inst = (ps as PackedScene).instantiate()
 	weapon.add_child(inst)
-	var aabb := _node_aabb(inst)
+	var r := CombatUtil.scene_aabb(inst, Transform3D.IDENTITY)
+	var aabb: AABB = r.box if r.has else AABB(Vector3(-0.1, -0.1, -0.1), Vector3(0.2, 0.2, 0.2))
 	var longest: float = maxf(maxf(aabb.size.x, aabb.size.y), aabb.size.z)
 	var s := 1.0 if longest < 0.001 else (WEAPON_LEN / longest)
 	var basis := Basis.from_euler(Vector3(0.0, deg_to_rad(180.0), 0.0)).scaled(Vector3.ONE * s)

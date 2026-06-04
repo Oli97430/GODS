@@ -14,9 +14,7 @@ const BASE_FILL := 0.42      # proba de base qu'une cellule éligible porte un o
 const MAX_PER_CHUNK := 230   # plafond d'instances par chunk (budget)
 const MAX_SLOPE := 1.0       # tan(angle) max : pas de débris sur falaises (reste sur pentes douces/moyennes)
 const SLOPE_EPS := 4.0       # mètres : pas pour l'estimation de pente
-# Décor de FOND MARIN (sous l'eau). Bathymétrie identique à SurfaceGenerator => les props se posent sur le mesh.
-const BATHY_MAX_DROP := 0.045
-const BATHY_SLOPE := 0.7
+# Décor de FOND MARIN (sous l'eau). Le fond vient de SurfaceGenerator.bathy_floor (SOURCE UNIQUE => calé sur le mesh).
 const SEABED_MAX_DEPTH := 0.14   # élévation : au-delà (abysse), pas de décor => près des côtes / bas-fonds
 const SEABED_FILL := 0.32        # proba de base qu'une cellule de fond marin porte un objet
 
@@ -59,7 +57,7 @@ static func seed_chunk(seed_local: int, cx: int, cz: int, anchor_dir: Vector3, e
 				if rng.randf() > SEABED_FILL:
 					continue
 				var sv := _pick_seabed(rng)
-				var floor_e := sea - minf(depth * BATHY_SLOPE, BATHY_MAX_DROP)
+				var floor_e := SurfaceGenerator.bathy_floor(sea, e)
 				var sloc := _local_pos_at(inv, dir, center, floor_e, phys_radius, vertical_scale)
 				_append(out, sv, _seabed_transform(sv, sloc, rng))
 				count += 1

@@ -37,7 +37,6 @@ const BONE_VARIANTS: Array[int] = [V_BONE_A, V_BONE_B]
 const LEAF_VARIANTS: Array[int] = [V_LEAF_DRY, V_LEAF_FRESH]
 const SHELL_VARIANTS: Array[int] = [V_SHELL]
 const SEA_ROCK_VARIANTS: Array[int] = [V_SEA_ROCK_A, V_SEA_ROCK_B]
-const GLOW_VARIANTS: Array[int] = [V_CORAL_GLOW, V_ANEMONE_GLOW]
 
 var _meshes: Array[Mesh] = []
 var _solid_mat: StandardMaterial3D   # cailloux/brindilles/os/coquillages : opaque, 1 face, vertex color

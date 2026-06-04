@@ -112,8 +112,7 @@ const MISSILE_DMG := 200.0          # gros dégât (= plafond RPC coop) => détr
 const MISSILE_LOCK_ANGLE := 16.0    # ° : demi-cône de verrouillage autour de l'axe du canon plasma
 const MISSILE_LOCK_RANGE := 70.0    # m : portée de verrouillage
 const MISSILE_LOCK_DWELL := 0.4     # s : durée à garder la cible dans le cône avant que le verrou accroche
-const MISSILE_AMMO_MAX := 8
-var _missile_ammo := 0              # munitions missile (portée RUN, lootées)
+var _missile_ammo := 0              # munitions missile (= miroir de Inventory.missiles, source persistante)
 var _lock_candidate: Node3D = null  # drone dans le cône (verrouillage EN COURS)
 var _lock_target: Node3D = null     # drone VERROUILLÉ (cible du prochain missile ; null tant que pas accroché)
 var _lock_t := 0.0                  # minuterie de maintien du verrou
@@ -713,14 +712,8 @@ func apply_pickup(kind: int) -> void:
 			_pickup_msg = "BOUCLIER %d" % int(_overshield)
 		4:
 			_pickup_msg = "+2 MISSILES"
-	# Re-dérive les bonus PERSISTANTS (auto-appliqués) depuis l'inventaire.
-	_dmg_mult = Inventory.damage_mult()
-	_firerate_mult = Inventory.firerate_mult()
-	_missile_ammo = Inventory.missiles
+	_sync_buffs_from_inventory()   # re-dérive dégâts/cadence/missiles persistants + pousse au blackboard (_overshield déjà à jour)
 	_pickup_msg_t = 1.8
-	GameState.combat_overshield = _overshield
-	GameState.combat_dmg_mult = _dmg_mult
-	GameState.combat_firerate_mult = _firerate_mult
 	AudioEngine.play_hit_confirm(true)   # carillon montant de récompense
 	_haptic(0.5, 0.12, 0.0, 1)
 	BHaptics.heal_pulse(0.55)
@@ -742,12 +735,17 @@ func _buff_suffix() -> String:
 # Charge le LOADOUT PERSISTANT depuis l'inventaire (à l'équipement/dégaine et à la réapparition). Les bonus ne se
 # réinitialisent PLUS à zéro : ils sont CONSERVÉS + sauvegardés (le bouclier est rempli à sa capacité au départ).
 func _reset_buffs() -> void:
+	_overshield = Inventory.shield_cap()   # bouclier rempli à la capacité persistante au début du run
+	_sync_buffs_from_inventory()
+	_lock_target = null
+	_pickup_msg_t = 0.0
+
+# Dérive les bonus persistants (dégâts/cadence/missiles) de l'inventaire + pousse l'état combat au blackboard.
+# Partagé par apply_pickup (ramassage) et _reset_buffs (début de run). Le bouclier (_overshield) est géré par l'appelant.
+func _sync_buffs_from_inventory() -> void:
 	_dmg_mult = Inventory.damage_mult()
 	_firerate_mult = Inventory.firerate_mult()
 	_missile_ammo = Inventory.missiles
-	_overshield = Inventory.shield_cap()
-	_lock_target = null
-	_pickup_msg_t = 0.0
 	GameState.combat_overshield = _overshield
 	GameState.combat_dmg_mult = _dmg_mult
 	GameState.combat_firerate_mult = _firerate_mult

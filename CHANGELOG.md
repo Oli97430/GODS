@@ -5,6 +5,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/) · Versioning: [SemVer](
 
 ## [Unreleased]
 
+## [0.10.1] — 2026-06-04
+### Fixed
+- **Co-op:** drone deaths no longer crash the host — a signal-arity regression introduced by v0.10.0's enemy-variety change.
+### Changed
+- Internal quality pass: single source of truth for the seabed-floor formula, shared avatar AABB helper, cached arm-IK rest poses + idle-arm reset (per-frame work removed), extracted the buff-loadout derivation, deleted dead constants. No gameplay changes.
+
 ## [0.10.0] — 2026-06-04
 ### Added
 - **Homing-missile lock-on polish** — hold your aim on a drone to acquire the lock (a camera-facing ring tightens from yellow to green with an acquisition beep), fire with a dedicated launch whoosh; the missile trails a glowing exhaust. "LOCK" readout cue.
@@ -58,7 +64,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/) · Versioning: [SemVer](
 ### Added
 - Initial early-access release: seamless galaxy → system → planet → surface explorer, deterministic by seed, PCVR + desktop.
 
-[Unreleased]: https://github.com/Oli97430/GODS/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/Oli97430/GODS/compare/v0.10.1...HEAD
+[0.10.1]: https://github.com/Oli97430/GODS/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/Oli97430/GODS/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/Oli97430/GODS/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/Oli97430/GODS/compare/v0.7.0...v0.8.0

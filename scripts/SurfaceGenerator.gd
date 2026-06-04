@@ -27,6 +27,10 @@ const WATER_CARVE := 0.025      # phase 24 : creuse le lit SOUS la surface d'eau
 const BATHY_MAX_DROP := 0.045   # phase 24 (eau) : descente MAX du fond sous le niveau de mer (×vertical_scale ≈ ~7 m)
 const BATHY_SLOPE := 0.7        # pente du fond marin (fraction de la profondeur réelle) => bas-fonds visibles
 
+# Élévation du FOND MARIN (bathymétrie) — SOURCE UNIQUE, utilisée par le mesh ET le décor de fond (ClutterSeeder).
+static func bathy_floor(sea: float, e: float) -> float:
+	return e if e >= sea else sea - minf((sea - e) * BATHY_SLOPE, BATHY_MAX_DROP)
+
 # Renvoie { mesh: ArrayMesh, heightmap_shape: HeightMapShape3D, cell_size, patch_size, spawn_height }.
 static func generate(seed_local: int, landing_dir: Vector3, resolution: int = DEFAULT_RESOLUTION, patch_size: float = DEFAULT_PATCH_SIZE, vertical_scale: float = DEFAULT_VERTICAL_SCALE, planet_phys_radius: float = DEFAULT_PLANET_PHYS_RADIUS) -> Dictionary:
 	var pg := PlanetGenerator.new()
@@ -139,9 +143,7 @@ static func generate_chunk(seed_local: int, cx: int, cz: int, anchor_dir: Vector
 			# Sous la mer : le fond descend (bas-fonds). Au-dessus : terrain, MAIS on CREUSE le lit sous la
 			# surface d'eau LISSE (lac/rivière) => la terre forme une cuvette/chenal et l'eau épouse le relief.
 			# Bathymétrie océan uniquement ; la vallée/bassin d'eau douce vient déjà de sample_elevation (creusement).
-			var floor_e := e
-			if e < sea:
-				floor_e = sea - minf((sea - e) * BATHY_SLOPE, BATHY_MAX_DROP)
+			var floor_e := bathy_floor(sea, e)
 			var sphere_pos := dir * (phys_radius + floor_e * vertical_scale)
 			hgrid[hj * hw + hi] = inv * (sphere_pos - center)
 

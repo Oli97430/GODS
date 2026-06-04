@@ -3,7 +3,7 @@ extends Area3D
 ## destruction (explosion) au blaster. Area3D => touché par le raycast du blaster (collide_with_areas). Spawné
 ## en VAGUES par WaveManager. AUTO-CONTENU. Vise le joueur chaque frame => se recale tout seul au rebase.
 
-signal died(pos, arch)
+signal died(pos)
 
 const SHIP_MODEL := "res://models/luminaris_starship.glb"   # GLB détaillé (lourd/bouclier/boss) — auto-échelle + centré
 const SHIP_MODEL_LIGHT := "res://models/spaceship/SpaceShip Free low-poly 3D model.obj"   # mesh LOW-POLY (perf) pour les drones COURANTS
@@ -70,6 +70,8 @@ var _boss := false
 var _vulnerable := false
 var _boss_t := BOSS_ORBIT_TIME
 var _boss_bar: Label3D
+var _boss_bar_pct := -1        # dernier % affiché (n'écrit le Label3D qu'au CHANGEMENT => pas de re-layout/frame)
+var _boss_bar_vuln := false
 
 # Appelé par le WaveManager AVANT add_child : position de spawn + niveau (difficulté).
 func setup(player: Node3D, spawn_pos: Vector3, level: int, arch := 0) -> void:
@@ -320,7 +322,10 @@ func _process(delta: float) -> void:
 	# Barre de PV du boss.
 	if _boss_bar:
 		var pct := int(clampf(hp / maxf(_hp_max, 0.001), 0.0, 1.0) * 100.0)
-		_boss_bar.text = ("BOSS  %d%%  - VULNERABLE" % pct) if boss_charging else ("BOSS  %d%%" % pct)
+		if pct != _boss_bar_pct or boss_charging != _boss_bar_vuln:   # ne reconstruit le texte qu'au changement
+			_boss_bar_pct = pct
+			_boss_bar_vuln = boss_charging
+			_boss_bar.text = ("BOSS  %d%%  - VULNERABLE" % pct) if boss_charging else ("BOSS  %d%%" % pct)
 	# Tir vers le joueur (cadence normale ; le boss ajoute ses salves en fin de charge).
 	_fire_cd -= delta
 	if _fire_cd <= 0.0:
@@ -400,5 +405,5 @@ func _die() -> void:
 	ex.global_position = global_position
 	ex.play(1.0)
 	AudioEngine.play_impact(global_position, 0.7)   # boom de destruction
-	died.emit(global_position, archetype)
+	died.emit(global_position)   # le WaveManager lit `archetype` directement (drone encore valide) via .bind(self)
 	queue_free()
