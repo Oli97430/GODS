@@ -50,6 +50,7 @@ func setup(player: Node3D, spawn_pos: Vector3, level: int) -> void:
 var _pending_pos := Vector3.ZERO
 
 func _ready() -> void:
+	add_to_group("drone")   # cible pour le verrou missile (réel ET fantôme coop)
 	_rng.randomize()
 	global_position = _pending_pos
 	if _player:
@@ -128,6 +129,8 @@ func _ready() -> void:
 func _process(delta: float) -> void:
 	if remote:
 		return   # drone-fantôme : positionné par CoopCombat (aucune IA locale)
+	if GameState.options_open:
+		return   # menu ouvert => combat en pause (cohérent avec le gel du joueur)
 	if _spawn_t > 0.0 and _visual:   # pop d'apparition (indépendant du joueur)
 		_spawn_t = maxf(_spawn_t - delta, 0.0)
 		var k := clampf(1.0 - _spawn_t / 0.35, 0.0, 1.0)

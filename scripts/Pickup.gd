@@ -10,6 +10,7 @@ const KIND_HEAL := 0      # +vie
 const KIND_DAMAGE := 1    # dégâts ×
 const KIND_RAPID := 2     # cadence de tir ×
 const KIND_SHIELD := 3    # bouclier (PV en sus)
+const KIND_MISSILE := 4   # munitions de missile à tête chercheuse (tir secondaire plasma)
 
 const HOVER := 0.7            # m : hauteur de flottaison au-dessus du sol
 const BOB_AMP := 0.20         # m : amplitude du ballotement vertical
@@ -33,6 +34,8 @@ var _light: OmniLight3D
 var _collected := false
 var net_id := 0       # coop : id réseau (assigné par CoopCombat côté hôte ; 0 = solo)
 var remote := false   # coop : true = GHOST (invité) — visuel seul, position pilotée par CoopCombat
+var _ground_cache := INF   # sol sous le butin (mis en cache : raycast throttlé ~5 Hz, pas chaque frame)
+var _ground_t := 0.0
 
 # Couleur par type (statique => réutilisable pour le feedback côté joueur).
 static func kind_color(kind: int) -> Color:
@@ -40,6 +43,7 @@ static func kind_color(kind: int) -> Color:
 		KIND_DAMAGE: return Color(1.0, 0.4, 0.2)    # rouge-orange
 		KIND_RAPID: return Color(1.0, 0.9, 0.25)    # jaune
 		KIND_SHIELD: return Color(0.35, 0.8, 1.0)   # cyan
+		KIND_MISSILE: return Color(0.5, 1.0, 0.6)   # vert plasma (missile)
 		_: return Color(0.3, 1.0, 0.45)             # vert (soin)
 
 # À appeler AVANT add_child : joueur (cible/aimant), type, position monde du drone abattu.
@@ -108,8 +112,13 @@ func _process(delta: float) -> void:
 		_update_fade()
 		return
 	var gp := global_position
-	# Hauteur : descend/flotte au-dessus du sol trouvé par raycast (robuste terrain/rebase).
-	var ground := _find_ground(gp)
+	# Hauteur : descend/flotte au-dessus du sol. Raycast THROTTLÉ (~5 Hz) : le butin bouge lentement (aimant),
+	# inutile de sonder le sol chaque frame pendant 30 s (≈ -83 % de raycasts par pickup).
+	_ground_t -= delta
+	if _ground_t <= 0.0:
+		_ground_cache = _find_ground(gp)
+		_ground_t = 0.2
+	var ground := _ground_cache
 	if ground != INF:
 		var target_y := ground + HOVER + (sin(_t * BOB_SPEED) * 0.5 + 0.5) * BOB_AMP
 		gp.y = lerpf(gp.y, target_y, clampf(SETTLE_LERP * delta, 0.0, 1.0))

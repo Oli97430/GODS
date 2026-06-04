@@ -44,8 +44,21 @@ func _ready() -> void:
 	add_child(gl)
 
 func _process(delta: float) -> void:
+	if GameState.options_open:
+		return   # menu ouvert => combat en pause (cohérent avec le gel du joueur)
+	var prev := global_position
 	global_position += _vel * delta
 	_life -= delta
+	# Occlusion terrain : le bolt ne traverse pas le décor (pas de tir « à travers la colline »).
+	var space := get_world_3d().direct_space_state
+	if space != null:
+		var q := PhysicsRayQueryParameters3D.create(prev, global_position)
+		q.collide_with_areas = false   # ignore drones (Area3D) + bouclier (géré à part) : seul le terrain bloque
+		if _player != null and is_instance_valid(_player) and _player is CollisionObject3D:
+			q.exclude = [(_player as CollisionObject3D).get_rid()]
+		if not space.intersect_ray(q).is_empty():
+			queue_free()
+			return
 	if _player != null and is_instance_valid(_player):
 		# Le bouclier intercepte-t-il ce bolt ? (déployé + interposé devant la tête) => détruit sans dégâts.
 		if _player.has_method("shield_intercept") and _player.shield_intercept(global_position):

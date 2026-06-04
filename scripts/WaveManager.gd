@@ -8,6 +8,7 @@ const FIRST_DELAY := 2.5    # s avant la 1re vague (le temps de se préparer)
 const SPAWN_STAGGER := 0.12 # s entre deux apparitions de drone (spawn ÉCHELONNÉ => pas de pic de frame)
 const DROP_CHANCE := 0.5    # probabilité qu'un drone abattu lâche une amélioration ramassable
 const MAX_DRONES := 4       # plafond de drones SIMULTANÉS (rythme = + de PV par drone, pas + de nombre)
+const ARM_GRACE := 0.6      # tolérance de désarmement BREF (changement d'arme) avant de réinitialiser la session
 
 var _player: Node3D
 var _drones: Array = []
@@ -17,6 +18,7 @@ var _active := false
 var _awaiting_clear := false   # une vague est en cours : son nettoyage déclenchera un soin
 var _to_spawn := 0             # drones restant à faire apparaître pour la vague en cours (échelonné)
 var _spawn_cd := 0.0           # minuterie d'échelonnement des apparitions
+var _disarm_t := 0.0           # temps écoulé désarmé (grâce anti-reset lors d'un changement d'arme)
 var _rng := RandomNumberGenerator.new()
 
 func setup(player: Node3D) -> void:
@@ -27,13 +29,25 @@ func _process(delta: float) -> void:
 	# Coop : sur un INVITÉ, les vagues sont pilotées par l'HÔTE (drones répliqués via CoopCombat) => inerte ici.
 	if NetworkManager.is_active() and not NetworkManager.is_host():
 		return
-	var armed: bool = GameState.current_scale == GameState.Scale.SURFACE and _player != null \
-		and _player.has_method("is_armed") and _player.is_armed()
-	# Désarmé OU mort => on nettoie la session ; à la réapparition elle redémarre à la vague 1.
-	if not armed or GameState.combat_dead:
+	# Menu ouvert => combat EN PAUSE (le joueur est figé ; drones/bolts le sont aussi) : cohérent, pas de reset.
+	if GameState.options_open:
+		return
+	var on_surface: bool = GameState.current_scale == GameState.Scale.SURFACE
+	# Plus en surface OU mort => nettoyage IMMÉDIAT (quitter la surface n'est PAS un changement d'arme : pas de grâce).
+	if not on_surface or GameState.combat_dead:
 		if _active:
 			_clear()
 		return
+	var weapon_out: bool = _player != null and _player.has_method("is_armed") and _player.is_armed()
+	# En surface mais arme rangée : on TOLÈRE un bref désarmement (le temps d'un changement d'arme) via une grâce —
+	# la session ne se réinitialise QUE si l'arme reste rangée au-delà de ARM_GRACE (= vrai dégainage).
+	if not weapon_out:
+		if _active:
+			_disarm_t += delta
+			if _disarm_t >= ARM_GRACE:
+				_clear()
+		return
+	_disarm_t = 0.0   # armé (ou ré-armé pendant la grâce) => la session continue, vagues/score INCHANGÉS
 	if not _active:
 		_active = true
 		_wave = 0
@@ -127,13 +141,15 @@ func _on_drone_died(pos: Vector3) -> void:
 # Tirage pondéré du type d'amélioration : soin un peu plus fréquent, puis dégâts / cadence / bouclier.
 func _roll_pickup_kind() -> int:
 	var r := _rng.randf()
-	if r < 0.34:
+	if r < 0.28:
 		return 0    # KIND_HEAL
-	elif r < 0.60:
+	elif r < 0.48:
 		return 1    # KIND_DAMAGE
-	elif r < 0.82:
+	elif r < 0.66:
 		return 2    # KIND_RAPID
-	return 3        # KIND_SHIELD
+	elif r < 0.84:
+		return 3    # KIND_SHIELD
+	return 4        # KIND_MISSILE (~16 %)
 
 func _clear() -> void:
 	if NetworkManager.is_active() and NetworkManager.is_host():
@@ -141,6 +157,7 @@ func _clear() -> void:
 	_active = false
 	_awaiting_clear = false
 	_to_spawn = 0
+	_disarm_t = 0.0
 	for c in get_children():
 		c.queue_free()   # drones + bolts
 	_drones.clear()

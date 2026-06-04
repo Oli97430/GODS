@@ -5,7 +5,6 @@ extends CanvasLayer
 ## INERTE tant qu'il n'est pas ouvert (caché au boot ; ne capture l'entrée que visible). Réutilise le gel
 ## GameState.options_open (libère la souris + fige la locomotion, comme le menu Options — SANS pause).
 
-const PORT := 7711
 
 var _panel: Panel
 var _status: Label
@@ -134,7 +133,7 @@ func _on_ip_changed(t: String) -> void:
 	Settings.save_settings()
 
 func _on_host() -> void:
-	NetworkManager.host(PORT)
+	NetworkManager.host()   # port = NetworkManager.DEFAULT_PORT (source unique)
 	_refresh()
 
 func _on_join() -> void:
@@ -143,7 +142,7 @@ func _on_join() -> void:
 		ip = "127.0.0.1"
 	Settings.coop_ip = ip
 	Settings.save_settings()
-	NetworkManager.join(ip, PORT)
+	NetworkManager.join(ip)   # port = NetworkManager.DEFAULT_PORT (source unique)
 	_refresh()
 
 func _on_leave() -> void:

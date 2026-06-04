@@ -176,6 +176,8 @@ func enter_surface(landing_dir: Vector3 = Vector3.ZERO) -> void:
 	surface_view.visible = true
 	GameState.current_scale = GameState.Scale.SURFACE
 	var player = surface_view.get_player()
+	if player == null:
+		return   # build a échoué : évite un null-deref (surface posée, mais pas de crash)
 	if GameState.xr_active:
 		player.enter_xr(xr_origin, xr_camera, left_controller, right_controller)
 		xr_camera.environment = surface_view.get_environment()
@@ -184,6 +186,7 @@ func enter_surface(landing_dir: Vector3 = Vector3.ZERO) -> void:
 		player.get_active_camera().environment = surface_view.get_environment()
 	nav.set_prompt("")
 	print("[ViewManager] Descente surface (système ", _current_system_index, ", seed=", _current_planet_seed, ").")
+	_send_world_context(0)   # coop : emmène les invités DÉJÀ connectés sur CETTE surface (robuste à l'ordre hôte/invité)
 
 # SURFACE -> PLANET : remontée en orbite (décharge le terrain, rend la caméra à l'hologramme).
 func exit_to_planet() -> void:
@@ -365,24 +368,45 @@ func _dev_auto_surface(auto_arm: bool) -> void:
 
 func _dev_auto_arm() -> void:
 	var p = surface_view.get_player()
-	if p and p.has_method("toggle_weapon"):
-		p.toggle_weapon()
+	if p == null:
+		return
+	if p.has_method("toggle_plasma"):
+		p.toggle_plasma()         # plasma équipé (test du tir SECONDAIRE missile à tête chercheuse)
+	if p.has_method("dev_load_missiles"):
+		p.dev_load_missiles(8)    # munitions de test (en jeu réel : lootées sur les drones abattus)
 
 # HÔTE : un pair vient de rejoindre. Si on est en SURFACE, on lui envoie le contexte monde (seed + index
 # système + index planète + point d'atterrissage) pour qu'il atterrisse sur LA MÊME surface (déterminisme).
+# Envoie le contexte monde aux invités. to_id == 0 => TOUS les pairs ; sinon un pair précis. Hôte + SURFACE seulement.
+func _send_world_context(to_id: int) -> void:
+	if not NetworkManager.is_host() or GameState.current_scale != GameState.Scale.SURFACE:
+		return
+	var sd := GameState.global_seed
+	var si := _current_system_index
+	var pi := _orbit_planet_index
+	var ld := _current_landing_dir
+	var sim := TimeOfDay.simulated_seconds
+	var wm := WeatherSystem.get_force_mode()
+	if to_id == 0:
+		rpc("_rpc_world_context", sd, si, pi, ld, sim, wm)
+	else:
+		rpc_id(to_id, "_rpc_world_context", sd, si, pi, ld, sim, wm)
+
 func _on_net_peer_joined(id: int) -> void:
-	if NetworkManager.is_host() and GameState.current_scale == GameState.Scale.SURFACE:
-		rpc_id(id, "_rpc_world_context", GameState.global_seed, _current_system_index, _orbit_planet_index, _current_landing_dir)
+	_send_world_context(id)   # un pair arrive : si l'hôte est DÉJÀ en surface, on l'y emmène tout de suite
 
 # INVITÉ : reçoit le contexte de l'hôte => adopte son seed (reconstruit la galaxie si différent) puis saute
 # sur la même surface. @rpc authority => seul l'hôte (id 1) peut l'appeler chez les invités.
 @rpc("authority", "call_remote", "reliable")
-func _rpc_world_context(seed_val: int, system_index: int, planet_index: int, landing_dir: Vector3) -> void:
+func _rpc_world_context(seed_val: int, system_index: int, planet_index: int, landing_dir: Vector3, sim_seconds: float, force_mode: int) -> void:
 	print("[ViewManager] contexte coop reçu (seed=", seed_val, ", sys=", system_index, ", planet=", planet_index, ").")
 	if GameState.global_seed != seed_val:
 		GameState.global_seed = seed_val
 		galaxy_view.rebuild()
 	goto_surface(system_index, planet_index, landing_dir)
+	# Coop : adopte l'horloge + la météo forcée de l'hôte (sinon jour/nuit, soleil & météo divergent entre clients).
+	TimeOfDay.simulated_seconds = sim_seconds
+	WeatherSystem.set_force_mode(force_mode)
 
 # Saut DIRECT vers une surface (système -> planète -> sol) en UNE transition. Réplique enter_system +
 # enter_planet + enter_surface sans leurs gardes individuels. Sert à la coop (invité) et au dev (--auto-surface).
@@ -391,16 +415,16 @@ func goto_surface(system_index: int, planet_index: int, landing_dir: Vector3) ->
 		return
 	if system_index < 0 or system_index >= galaxy_view.data.systems.size():
 		return
+	# 1. Système — on génère AVANT toute mutation pour valider l'index planète (sinon état mi-transition).
+	var sys = galaxy_view.data.systems[system_index]
+	var sdata = SystemGenerator.generate(sys.seed_local, sys.star_type, sys.palette_id, sys.name)
+	if planet_index < 0 or planet_index >= sdata.planets.size():
+		return   # index invalide => RIEN n'a été muté (la galaxie reste l'état courant cohérent)
 	_transitioning = true
 	call_deferred("_clear_transition")
-	# 1. Système
-	var sys = galaxy_view.data.systems[system_index]
 	_current_system = sys
 	_current_system_index = system_index
-	var sdata = SystemGenerator.generate(sys.seed_local, sys.star_type, sys.palette_id, sys.name)
 	system_view.build(sdata)
-	if planet_index < 0 or planet_index >= sdata.planets.size():
-		return
 	# 2. Planète
 	var planet = sdata.planets[planet_index]
 	_current_planet_seed = planet.seed_local
@@ -420,6 +444,8 @@ func goto_surface(system_index: int, planet_index: int, landing_dir: Vector3) ->
 	surface_view.visible = true
 	GameState.current_scale = GameState.Scale.SURFACE
 	var player = surface_view.get_player()
+	if player == null:
+		return   # build a échoué : évite un null-deref (surface posée, mais pas de crash)
 	if GameState.xr_active:
 		player.enter_xr(xr_origin, xr_camera, left_controller, right_controller)
 		xr_camera.environment = surface_view.get_environment()
@@ -428,3 +454,4 @@ func goto_surface(system_index: int, planet_index: int, landing_dir: Vector3) ->
 		player.get_active_camera().environment = surface_view.get_environment()
 	nav.set_prompt("")
 	print("[ViewManager] goto_surface (sys=", system_index, ", planet=", planet_index, ", seed=", _current_planet_seed, ").")
+	_send_world_context(0)   # coop : idem (si hôte ; no-op chez l'invité qui exécute aussi goto_surface)

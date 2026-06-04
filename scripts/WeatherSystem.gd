@@ -56,6 +56,7 @@ func configure_planet(seed_local: int) -> void:
 	_coverage_bias = rng.randf_range(-0.30, 0.35)   # tendance climatique de la planète
 	_storm_bias = rng.randf_range(-0.25, 0.25)
 	_wind_bias = rng.randf_range(-0.10, 0.20)
+	_force_mode = 0   # le forçage météo (test, montre) NE persiste PAS d'une planète à l'autre
 	_configured = true
 	_sample_now()
 

@@ -77,7 +77,11 @@ if (Test-Path $Zip) { Remove-Item $Zip -Force }
 Compress-Archive -Path (Join-Path $RelDir '*') -DestinationPath $Zip -CompressionLevel Optimal
 Write-Host ("    Zip : {0:N1} Mo" -f ((Get-Item $Zip).Length / 1MB))
 
-if ($DryRun) { Step "DRY RUN OK — rien n'est commite/tague/publie. Verifie : $Zip"; return }
+if ($DryRun) {
+  git -C $Root checkout -- export_presets.cfg project.godot   # restaure le bump : un DryRun ne doit RIEN laisser de modifie (sinon le run reel echoue au garde "arbre propre")
+  Step "DRY RUN OK — fichiers de version restaures, rien commite/tague/publie. Verifie le zip : $Zip"
+  return
+}
 
 # --- 4. Commit du bump de version, tag, push ---
 Step 'Commit + tag + push'

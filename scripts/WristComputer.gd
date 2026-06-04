@@ -82,6 +82,7 @@ func _ready() -> void:
 	_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 	_screen.material_override = _mat
 	_screen.visible = false   # masquée tant qu'on ne regarde pas son poignet
+	_subviewport.render_target_update_mode = SubViewport.UPDATE_DISABLED   # perf : pas de rendu tant que la montre est cachée
 	_ht = get_node_or_null(hand_tracking_path)
 	_left_ctrl = get_node_or_null(left_controller_path)
 	_right_ctrl = get_node_or_null(right_controller_path)
@@ -274,7 +275,10 @@ func _process(dt: float) -> void:
 func _fade_to(target: float, dt: float) -> void:
 	_alpha = move_toward(_alpha, target, FADE_SPEED * dt)
 	set_screen_alpha(_alpha)
-	_screen.visible = _alpha > 0.01
+	var on: bool = _alpha > 0.01
+	_screen.visible = on
+	# Perf : ne rend la texture du SubViewport (Panel + ~25 widgets) QUE quand la montre est visible (sinon à 90 Hz pour rien).
+	_subviewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS if on else SubViewport.UPDATE_DISABLED
 
 # Repère MONDE de la montre (origine + base ; +Z = face de la montre = normale). Source :
 # poignet gauche du hand tracking (frame dérivée des joints, robuste à la convention), sinon

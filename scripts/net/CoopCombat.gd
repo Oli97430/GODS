@@ -172,6 +172,10 @@ func coop_nearest_player(world_pos: Vector3) -> Dictionary:
 func _rpc_hit(nid: int, dmg: float) -> void:
 	if not NetworkManager.is_host():
 		return
+	# Entrée NON FIABLE (any_peer) : valide le dégât (fini, positif, plafonné) avant de l'appliquer — un pair
+	# malveillant/buggé ne peut pas one-shot tous les drones ni envoyer un NaN/négatif (qui corromprait la transform).
+	if not (is_finite(dmg) and dmg > 0.0 and dmg <= 200.0):
+		return
 	var d = _host_drones.get(nid)
 	if d != null and is_instance_valid(d):
 		d.take_damage(dmg, d.global_position)   # autorité : applique les dégâts au vrai drone
@@ -238,7 +242,7 @@ func _rpc_pickup_remove(nid: int) -> void:
 
 @rpc("authority", "unreliable_ordered", "call_remote")
 func _rpc_pickup_sync(ids: PackedInt32Array, xs: PackedVector3Array) -> void:
-	for i in ids.size():
+	for i in mini(ids.size(), xs.size()):   # garde anti-hors-borne
 		var nid := ids[i]
 		var t = _ptargets.get(nid)
 		if t == null:
@@ -287,7 +291,7 @@ func _rpc_clear_all() -> void:
 
 @rpc("authority", "unreliable_ordered", "call_remote")
 func _rpc_sync(ids: PackedInt32Array, xs: PackedVector3Array) -> void:
-	for i in ids.size():
+	for i in mini(ids.size(), xs.size()):   # garde anti-hors-borne si les deux tableaux divergent
 		var nid := ids[i]
 		var planet_pos := xs[i]
 		var t = _gtargets.get(nid)
@@ -313,6 +317,15 @@ func _process(dt: float) -> void:
 	var m = _get_m()
 	if m == null:
 		return
+	# Élague les fantômes dont le nœud a été libéré (changement de scène/échelle) => pas d'accès à un nœud mort.
+	for nid in _ghosts.keys():
+		if not is_instance_valid(_ghosts[nid]):
+			_ghosts.erase(nid)
+			_gtargets.erase(nid)
+	for nid in _ghost_pickups.keys():
+		if not is_instance_valid(_ghost_pickups[nid]):
+			_ghost_pickups.erase(nid)
+			_ptargets.erase(nid)
 	for nid in _ghosts:
 		var g = _ghosts[nid]
 		var t = _gtargets.get(nid)

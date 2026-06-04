@@ -33,6 +33,11 @@ jobs:
           set +e
           # --editor --quit declenche l'import complet + la compilation de tous les scripts.
           ./godot --headless --path . --editor --quit 2>&1 | tee validate.log
+          GODOT_RC=${PIPESTATUS[0]}
+          if [ "$GODOT_RC" -gt 1 ]; then
+            echo "::error::Godot a quitte avec le code $GODOT_RC (crash/abort), pas seulement des erreurs script."
+            exit 1
+          fi
           echo "---- scan des erreurs script/scene ----"
           # On ignore les erreurs XR benignes (pas de casque sur le runner CI).
           if grep -iE 'SCRIPT ERROR|PARSE ERROR|Failed to load script|Failed to instantiate' validate.log \

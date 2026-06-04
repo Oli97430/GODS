@@ -123,6 +123,7 @@ func reset_defaults() -> void:
 	vignette_strength = DEF.vignette_strength
 	turn_mode = DEF.turn_mode
 	snap_angle = DEF.snap_angle
+	coop_ip = DEF.coop_ip
 	apply_graphics()
 	apply_fx()
 	apply_audio()
@@ -137,7 +138,7 @@ func load_settings() -> void:
 	if cfg.load(PATH) != OK:
 		return   # aucun fichier => défauts
 	_has_file = true
-	render_scale = cfg.get_value("graphics", "render_scale", render_scale)
+	render_scale = float(cfg.get_value("graphics", "render_scale", render_scale))   # coercition défensive (cfg ancien/corrompu)
 	# int() défensif sur les champs-INDEX : un .cfg ancien/corrompu peut stocker 0.0 -> redevenu float,
 	# ce qui casse clampi()/indexation/match. Cast explicite à la relecture.
 	msaa_index = int(cfg.get_value("graphics", "msaa_index", msaa_index))
@@ -154,9 +155,9 @@ func load_settings() -> void:
 	haptics_enabled = cfg.get_value("haptics", "enabled", haptics_enabled)
 	haptics_intensity = cfg.get_value("haptics", "intensity", haptics_intensity)
 	vignette_on = cfg.get_value("comfort", "vignette_on", vignette_on)
-	vignette_strength = cfg.get_value("comfort", "vignette_strength", vignette_strength)
 	turn_mode = int(cfg.get_value("comfort", "turn_mode", turn_mode))
-	snap_angle = cfg.get_value("comfort", "snap_angle", snap_angle)
+	snap_angle = float(cfg.get_value("comfort", "snap_angle", snap_angle))
+	vignette_strength = float(cfg.get_value("comfort", "vignette_strength", vignette_strength))
 	coop_ip = str(cfg.get_value("coop", "ip", coop_ip))
 
 func save_settings() -> void:

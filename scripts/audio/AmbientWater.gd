@@ -67,14 +67,11 @@ func _process(dt: float) -> void:
 	for i in n:
 		_brown += (_rng.randf() * 2.0 - 1.0) * 0.02
 		_brown = clampf(_brown, -1.0, 1.0)
-		_brownR += (_rng.randf() * 2.0 - 1.0) * 0.02
-		_brownR = clampf(_brownR, -1.0, 1.0)
-		var bodyL := _lp.process(_brown * 3.2)
-		var bodyR := _lpR.process(_brownR * 3.2)   # corps décorrélé L/R => largeur
+		var body := _lp.process(_brown * 3.2)
 		var imp := 0.0
 		if _imp.is_active():
 			imp = _imp.ar() * (_rng.randf() * 2.0 - 1.0) * 0.5   # éclaboussure (centrée)
-		var sL := (bodyL * 0.5 + imp) * gg * 0.5
-		var sR := (bodyR * 0.5 + imp) * gg * 0.5
-		_buf[i] = Vector2(sL, sR)
+		var s := (body * 0.5 + imp) * gg * 0.5
+		# MONO : un AudioStreamPlayer3D spatialise déjà selon l'écoute => le « stéréo » L/R décorrélé était gâché (CPU pur).
+		_buf[i] = Vector2(s, s)
 	_pb.push_buffer(_buf)

@@ -81,9 +81,15 @@ func _process(dt: float) -> void:
 		return
 	if GameState.current_scale != GameState.Scale.SURFACE:
 		for id in _avatars:               # hors surface : pas de monde partagé en MVP => masque
-			_avatars[id].visible = false
+			if is_instance_valid(_avatars[id]):
+				_avatars[id].visible = false
 		return
 	_acquire()
+	# Élague les avatars dont le nœud a été libéré (changement de scène) => respawn au prochain état reçu.
+	for id in _avatars.keys():
+		if not is_instance_valid(_avatars[id]):
+			_avatars.erase(id)
+			_buf.erase(id)
 	if _cm == null or not _cm.has_method("root_transform"):
 		return
 	var m: Transform3D = _cm.root_transform()
@@ -95,6 +101,8 @@ func _process(dt: float) -> void:
 	# 2. Placer les avatars distants : interpolation planète + conversion planète->rendu via M LOCAL.
 	for id in _avatars:
 		var av = _avatars[id]
+		if not is_instance_valid(av):
+			continue
 		var b = _buf.get(id)
 		if b == null:
 			av.visible = false

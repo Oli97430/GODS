@@ -81,6 +81,9 @@ var _grenade              # Blaster.gd en mode PROJECTILE : lance-grenades (expl
 var _blaster              # arme ACTIVE (= _revolver / _plasma / _grenade ; null = dégainé)
 var _plasma_scope         # ScopeView.gd : lunette VR (zoom optique SubViewport) montée sur le plasma
 var _armed := false       # une arme est équipée
+# Holster VR : zones de saisie sur le corps (repère tête + lacet). Main droite + grip près d'une zone => (dé)gaine.
+const HOLSTER_RADIUS := 0.20   # m : rayon de saisie autour d'un point d'arme
+var _grip_prev := false        # front montant du grip droit (évite la répétition tant que le grip reste tenu)
 var _fire_cd := 0.0       # cooldown de tir
 var _arm_prev := false    # front montant touche B (revolver)
 var _plasma_prev := false # front montant touche V (plasma)
@@ -104,6 +107,15 @@ var _firerate_mult := 1.0 # x cadence de tir (améliorations)
 var _overshield := 0.0    # PV de bouclier en sus (améliorations), absorbés avant les PV
 var _pickup_msg := ""     # annonce brève de ramassage (affichée sur le readout)
 var _pickup_msg_t := 0.0  # minuterie de l'annonce de ramassage (s)
+# Missile à tête chercheuse (tir SECONDAIRE du plasma, munitions LOOTÉES) : verrou auto + tir vers un drone.
+const MISSILE_DMG := 200.0          # gros dégât (= plafond RPC coop) => détruit tout drone réaliste
+const MISSILE_LOCK_ANGLE := 16.0    # ° : demi-cône de verrouillage autour de l'axe du canon plasma
+const MISSILE_LOCK_RANGE := 70.0    # m : portée de verrouillage
+const MISSILE_AMMO_MAX := 8
+var _missile_ammo := 0              # munitions missile (portée RUN, lootées)
+var _lock_target: Node3D = null     # drone verrouillé (cible du prochain missile)
+var _missile_prev := false          # front du tir secondaire (gâchette gauche VR / clic-molette bureau)
+var _lock_ring: MeshInstance3D = null
 var _stuck_t := 0.0   # anti-blocage : temps passé à "vouloir marcher sans avancer" (enfoncé/coincé)
 # Retour haptique XR (no-op en bureau) — état de suivi des différents pulses.
 var _step_foot := 1      # alterne le tic de foulée gauche/droite
@@ -298,6 +310,12 @@ func exit() -> void:
 		_attach_weapon_to(_shield, self, Transform3D.IDENTITY)
 	_fly_prev = false
 	_deploy_prev = false
+	# Reset des suivis air->sol : sinon un futur re-spawn (sans repasser par build) émettrait un "thump"/impact fantôme.
+	_was_air = false
+	_impact_was_air = false
+	_air_vy = 0.0
+	_fall_vy = 0.0
+	_stuck_t = 0.0
 	_frozen = false   # ne pas laisser un gel zombie : un futur re-spawn qui ne repasse pas par build() figerait le joueur
 	if _vignette:
 		_vignette.clear()   # sinon la vignette resterait figée à l'écran hors-surface
@@ -346,6 +364,7 @@ func toggle_grenade() -> bool:
 
 # Sort l'arme `w` (ou null = dégainer) : range les deux armes, attache la nouvelle à la main, montre le bouclier.
 func _equip(w) -> void:
+	var was_armed := _armed   # pour distinguer une SORTIE fraîche (désarmé->armé) d'un CHANGEMENT d'arme (armé->arme)
 	for g in [_revolver, _plasma, _grenade]:
 		if g:
 			g.visible = false
@@ -370,19 +389,24 @@ func _equip(w) -> void:
 		_plasma.sight_enabled = true
 	if _plasma_scope and _blaster != _plasma:
 		_plasma_scope.set_active(false)
-	# Combat opt-in : (ré)équiper restaure les PV pleins (+ brève grâce) ; dégainer remet l'état à zéro.
-	_hp = HP_MAX
-	_dead = false
-	_hurt_t = 0.0
-	_respawn_t = 0.0
-	_invuln_t = 1.5 if _armed else 0.0
+	# Combat opt-in : on (ré)initialise le RUN (PV pleins + brève grâce + buffs remis à zéro) UNIQUEMENT sur une
+	# SORTIE d'arme fraîche (désarmé->armé) ou un dégainage (->désarmé). Un CHANGEMENT d'arme en plein combat
+	# (armé->autre arme) CONSERVE le run : PV, améliorations ramassées et progression des vagues INCHANGÉS
+	# (ni soin gratuit, ni invulnérabilité gratuite en switchant d'arme).
+	var fresh_draw := _armed and not was_armed
+	if fresh_draw or not _armed:
+		_hp = HP_MAX
+		_dead = false
+		_hurt_t = 0.0
+		_respawn_t = 0.0
+		_invuln_t = 1.5 if _armed else 0.0
+		_reset_buffs()   # améliorations ramassées = portée RUN (réinit. à la sortie fraîche / au dégainage)
+		GameState.combat_hp = _hp
+		GameState.combat_hp_max = HP_MAX
+		GameState.combat_dead = false
+		_hit_dir_t = 0.0
+		_heal_t = 0.0
 	GameState.combat_active = _armed
-	_reset_buffs()   # améliorations ramassées = portée RUN (réinit. à chaque (ré)équipement / dégaine)
-	GameState.combat_hp = _hp
-	GameState.combat_hp_max = HP_MAX
-	GameState.combat_dead = false
-	_hit_dir_t = 0.0
-	_heal_t = 0.0
 	if not _armed:
 		if _combat_overlay:
 			_combat_overlay.clear()
@@ -405,6 +429,129 @@ func is_armed() -> bool:
 # Nom de l'arme active ("Blaster" / "Plasma" / "" si dégainé) — pour l'UI montre.
 func active_weapon_name() -> String:
 	return _blaster.weapon_name if _blaster != null else ""
+
+# Holster VR : main DROITE près d'une zone du corps + grip (front montant) => (dé)gaine l'arme mappée. Équiper
+# arme directement le joueur (is_armed) => le combat démarre sans passer par la montre. Zones relatives à la tête.
+func _update_holster() -> void:
+	if _xr_camera == null or _right == null or not _right.get_is_active():
+		return
+	var grip: bool = _right.get_float("grip") > 0.6
+	var edge: bool = grip and not _grip_prev
+	_grip_prev = grip
+	if not edge:
+		return
+	var ht := _xr_camera.global_transform
+	var fwd := -ht.basis.z
+	fwd.y = 0.0
+	if fwd.length() < 0.001:
+		fwd = Vector3.FORWARD
+	fwd = fwd.normalized()
+	var right := fwd.cross(Vector3.UP)   # droite horizontale du corps (depuis le lacet de la tête)
+	var hp := ht.origin
+	var rp := _right.global_position
+	# Points de saisie (m, relatifs à la tête) : hanches plus bas ; épaule plus haut + en arrière.
+	var zones := [
+		[hp + right * 0.20 + Vector3.DOWN * 0.62 + fwd * 0.04, 0],   # hanche DROITE -> revolver
+		[hp - right * 0.20 + Vector3.DOWN * 0.62 + fwd * 0.04, 2],   # hanche GAUCHE (cross-draw) -> grenade
+		[hp + right * 0.17 + Vector3.DOWN * 0.06 - fwd * 0.14, 1],   # épaule DROITE (over-shoulder) -> plasma
+	]
+	var best := -1
+	var bd := HOLSTER_RADIUS
+	for z in zones:
+		var d: float = rp.distance_to(z[0])
+		if d < bd:
+			bd = d
+			best = z[1]
+	if best == 0:
+		toggle_weapon()
+	elif best == 1:
+		toggle_plasma()
+	elif best == 2:
+		toggle_grenade()
+	if best >= 0:
+		_haptic(0.5, 0.1, 0.0, 1)   # retour de saisie (manette droite)
+
+# --- Missile à tête chercheuse (tir SECONDAIRE du plasma) ---
+# Actif uniquement plasma dégainé. Verrou auto sur le drone le plus aligné avec le canon (cône), tir au front
+# de la gâchette GAUCHE (VR) / clic-molette (bureau) si munitions. Coop : le missile frappe la cible (réelle ou
+# fantôme) via take_damage -> l'invité rapporte le coup à l'hôte (validé ≤ MISSILE_DMG).
+func _update_missile(_delta: float) -> void:
+	if _blaster != _plasma or _plasma == null or _dead or not _armed:
+		_lock_target = null
+		_update_lock_ring()
+		return
+	var mt: Transform3D = _plasma.aim_transform()
+	var origin := mt.origin
+	var fwd := -mt.basis.z
+	var best: Node3D = null
+	var best_dot: float = cos(deg_to_rad(MISSILE_LOCK_ANGLE))
+	for d in get_tree().get_nodes_in_group("drone"):
+		if not is_instance_valid(d):
+			continue
+		var to: Vector3 = (d as Node3D).global_position - origin
+		var dist := to.length()
+		if dist > MISSILE_LOCK_RANGE or dist < 0.5:
+			continue
+		var dot := fwd.dot(to / dist)
+		if dot > best_dot:
+			best_dot = dot
+			best = d as Node3D
+	_lock_target = best
+	_update_lock_ring()
+	if _missile_fire_edge() and _lock_target != null and _missile_ammo > 0:
+		_fire_missile()
+
+func _missile_fire_edge() -> bool:
+	var pressed := false
+	if _xr:
+		pressed = _left != null and _left.get_is_active() and _left.get_float("trigger") > 0.6
+	else:
+		pressed = Input.is_mouse_button_pressed(MOUSE_BUTTON_MIDDLE)
+	var edge := pressed and not _missile_prev
+	_missile_prev = pressed
+	return edge
+
+func _fire_missile() -> void:
+	_missile_ammo -= 1
+	var mt: Transform3D = _plasma.aim_transform()
+	var m = preload("res://scripts/HomingMissile.gd").new()
+	m.setup(mt.origin, _lock_target, MISSILE_DMG)
+	var sc := get_tree().current_scene
+	if sc != null:
+		sc.add_child(m)
+	AudioEngine.play_grenade_launch(mt.origin)   # whoosh grave de lancement (réutilisé)
+	_haptic(0.6, 0.13, 0.0, 1)
+	BHaptics.weapon_recoil(0.6)
+	_pickup_msg = "MISSILE LANCÉ"
+	_pickup_msg_t = 0.7
+
+# Anneau de verrouillage : créé paresseusement, posé (top_level) sur le drone verrouillé, tournoie ; masqué sinon.
+func _update_lock_ring() -> void:
+	if _lock_target != null and is_instance_valid(_lock_target):
+		if _lock_ring == null:
+			_lock_ring = MeshInstance3D.new()
+			_lock_ring.top_level = true
+			_lock_ring.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			var tm := TorusMesh.new()
+			tm.inner_radius = 1.0
+			tm.outer_radius = 1.25
+			_lock_ring.mesh = tm
+			var rmat := StandardMaterial3D.new()
+			rmat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+			rmat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+			rmat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+			rmat.albedo_color = Color(0.5, 1.0, 0.6, 0.85)
+			_lock_ring.material_override = rmat
+			add_child(_lock_ring)
+		_lock_ring.visible = true
+		_lock_ring.global_position = (_lock_target as Node3D).global_position
+		_lock_ring.rotate_y(0.06)   # tournoiement
+	elif _lock_ring != null:
+		_lock_ring.visible = false
+
+# DEV : dote en munitions missile (flag --auto-arm) pour tester le tir secondaire sans avoir à looter.
+func dev_load_missiles(n: int) -> void:
+	_missile_ammo = clampi(n, 0, MISSILE_AMMO_MAX)
 
 # Touché par un tir ennemi : applique les dégâts, flash + flèche directionnelle + haptique, mort si PV ≤ 0.
 # from_dir = direction monde d'où venait le tir (vers le tireur), pour l'indicateur directionnel.
@@ -469,6 +616,9 @@ func apply_pickup(kind: int) -> void:
 		3:
 			_overshield = minf(_overshield + 25.0, 75.0)
 			_pickup_msg = "BOUCLIER +25"
+		4:
+			_missile_ammo = mini(_missile_ammo + 2, MISSILE_AMMO_MAX)
+			_pickup_msg = "+2 MISSILES"
 	_pickup_msg_t = 1.8
 	GameState.combat_overshield = _overshield
 	GameState.combat_dmg_mult = _dmg_mult
@@ -481,6 +631,8 @@ func apply_pickup(kind: int) -> void:
 # Suffixe compact des améliorations actives (pour le readout). Vide si aucune.
 func _buff_suffix() -> String:
 	var s := ""
+	if _missile_ammo > 0:
+		s += "🚀%d  " % _missile_ammo
 	if _dmg_mult > 1.001:
 		s += "DGT x%.1f  " % _dmg_mult
 	if _firerate_mult > 1.001:
@@ -492,6 +644,8 @@ func _reset_buffs() -> void:
 	_dmg_mult = 1.0
 	_firerate_mult = 1.0
 	_overshield = 0.0
+	_missile_ammo = 0
+	_lock_target = null
 	_pickup_msg_t = 0.0
 	GameState.combat_overshield = 0.0
 	GameState.combat_dmg_mult = 1.0
@@ -639,6 +793,9 @@ func _physics_process(delta: float) -> void:
 			_vignette.place(get_active_camera(), 0.0, delta)   # résorbe la vignette (sinon figée derrière le menu si ouvert en vol)
 		return
 	_update_equipment()
+	if _xr:
+		_update_holster()   # dégainer/rengainer à la manette (zones holster sur le corps), sans passer par la montre
+	_update_missile(delta)   # plasma : verrou auto + tir secondaire (missile à tête chercheuse)
 	if _update_combat(delta):   # mort : locomotion gelée le temps de la réapparition
 		velocity = Vector3.ZERO
 		return

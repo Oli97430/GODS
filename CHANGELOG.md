@@ -5,6 +5,19 @@ Format: [Keep a Changelog](https://keepachangelog.com/) · Versioning: [SemVer](
 
 ## [Unreleased]
 
+## [0.9.0] — 2026-06-04
+### Added
+- **Homing-missile secondary fire** for the plasma rifle — aim at a drone to **auto-lock** (a ring marks the target), pull the **left trigger** (VR) / middle-mouse (desktop) to launch a seeking missile that chases it down and destroys it. Ammo is **looted** from downed drones, and it works in co-op (hits route to the host).
+- **Shoulder-holster weapon draw** (VR) — reach a hand to a body holster to draw/stow without the desktop toggle: right hip → revolver, over-shoulder → plasma, left hip → grenade launcher.
+- **New co-op avatars** — partners now appear as a proper humanoid model (auto-scaled, kept upright, head/hands/weapon tracked) instead of placeholder shapes.
+- **MIT license** and a **headless-validation GitHub Action** (boots Godot 4.6.2 and validates the project on every push).
+### Changed
+- **Robust co-op handshake** — a joiner reliably lands on the host's planet and spot even when connecting mid-descent (world context is re-broadcast on surface entry), and the host's simulated clock is synced so day/night and weather match.
+- Switching weapons mid-combat no longer resets the drone waves.
+- Internal terrain-generation perf pass (one shared per-chunk generator, cached flow-map lookups) — proven byte-identical, no world changes.
+### Fixed
+- Co-op netcode hardening (RPC damage validation, stale-ghost pruning), combat now pauses while the Options menu is open, enemy bolts respect terrain line-of-sight, and assorted stability fixes.
+
 ## [0.8.0] — 2026-06-04
 ### Added
 - **Online co-op** (opt-in, P2P direct ENet): host/join by IP, shared world handshake (same seed → same planet, same landing spot), synced avatars (head + hands + weapon) in planet-space, host-authoritative drone waves, shared enemy fire (both players take hits / shield / respawn), coop wave-heal, and **shared loot** (host-authoritative pickups awarded to the nearest player).
@@ -32,7 +45,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/) · Versioning: [SemVer](
 ### Added
 - Initial early-access release: seamless galaxy → system → planet → surface explorer, deterministic by seed, PCVR + desktop.
 
-[Unreleased]: https://github.com/Oli97430/GODS/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/Oli97430/GODS/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/Oli97430/GODS/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/Oli97430/GODS/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/Oli97430/GODS/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/Oli97430/GODS/compare/v0.5.0...v0.6.0

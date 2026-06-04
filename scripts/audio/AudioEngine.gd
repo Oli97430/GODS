@@ -615,7 +615,8 @@ func _synth_grenade_launch() -> AudioStreamWAV:
 		ph += TAU * f / sr
 		var tone := sin(ph) * 0.45 * exp(-t * 20.0)
 		var noise := nz.next() * 0.5 * exp(-t * 24.0)              # souffle du tube
-		buf[i] = tone + noise
+		var s := tone + noise
+		buf[i] = s / (1.0 + absf(s))                               # soft-clip (comme les autres synthés combat) => pas d'écrêtage dur
 	SfxSynth.apply_ar(buf, 0.001, 0.05)
 	return SfxSynth.to_wav(buf)
 
