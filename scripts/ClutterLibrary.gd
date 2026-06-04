@@ -23,17 +23,27 @@ const V_BONE_B := 5       # os courbé (côte stylisée)
 const V_LEAF_DRY := 6     # feuille morte (brun/ocre)
 const V_LEAF_FRESH := 7   # pétale / feuille colorée
 const V_SHELL := 8        # coquillage spiralé
-const VARIANT_COUNT := 9
+# Décor de FOND MARIN (sous l'eau).
+const V_SEA_ROCK_A := 9    # rocher de fond (boulder, mousse grise)
+const V_SEA_ROCK_B := 10   # rocher de fond (plus sombre)
+const V_STARFISH := 11     # étoile de mer (5 bras, à plat)
+const V_CORAL_GLOW := 12   # corail ramifié BIOLUMINESCENT (émissif cyan)
+const V_ANEMONE_GLOW := 13 # anémone BIOLUMINESCENTE (émissif magenta)
+const VARIANT_COUNT := 14
 
 const PEBBLE_VARIANTS: Array[int] = [V_PEBBLE_A, V_PEBBLE_B]
 const TWIG_VARIANTS: Array[int] = [V_TWIG_A, V_TWIG_B]
 const BONE_VARIANTS: Array[int] = [V_BONE_A, V_BONE_B]
 const LEAF_VARIANTS: Array[int] = [V_LEAF_DRY, V_LEAF_FRESH]
 const SHELL_VARIANTS: Array[int] = [V_SHELL]
+const SEA_ROCK_VARIANTS: Array[int] = [V_SEA_ROCK_A, V_SEA_ROCK_B]
+const GLOW_VARIANTS: Array[int] = [V_CORAL_GLOW, V_ANEMONE_GLOW]
 
 var _meshes: Array[Mesh] = []
 var _solid_mat: StandardMaterial3D   # cailloux/brindilles/os/coquillages : opaque, 1 face, vertex color
-var _leaf_mat: StandardMaterial3D    # feuilles : double face (quads minces visibles des deux côtés)
+var _leaf_mat: StandardMaterial3D    # feuilles / étoiles de mer : double face (minces, visibles des 2 côtés)
+var _glow_cyan: StandardMaterial3D   # corail biolum : émissif cyan
+var _glow_magenta: StandardMaterial3D # anémone biolum : émissif magenta
 
 func _init() -> void:
 	_build()
@@ -43,7 +53,13 @@ func mesh_for(variant: int) -> Mesh:
 	return _meshes[variant]
 
 func material_for(variant: int) -> Material:
-	return _leaf_mat if variant in LEAF_VARIANTS else _solid_mat
+	if variant == V_CORAL_GLOW:
+		return _glow_cyan
+	if variant == V_ANEMONE_GLOW:
+		return _glow_magenta
+	if variant in LEAF_VARIANTS or variant == V_STARFISH:
+		return _leaf_mat   # double face (étoile de mer plate / feuilles)
+	return _solid_mat
 
 func category_of(variant: int) -> int:
 	if variant in PEBBLE_VARIANTS:
@@ -73,6 +89,8 @@ func _build() -> void:
 	_leaf_mat.vertex_color_use_as_albedo = true
 	_leaf_mat.roughness = 1.0
 	_leaf_mat.cull_mode = BaseMaterial3D.CULL_DISABLED   # feuille mince visible des deux faces
+	_glow_cyan = _make_glow_mat(Color(0.2, 0.9, 1.0), 1.7)
+	_glow_magenta = _make_glow_mat(Color(1.0, 0.35, 0.9), 1.5)
 
 	_meshes.resize(VARIANT_COUNT)
 	_meshes[V_PEBBLE_A] = _make_pebble(Color(0.52, 0.49, 0.44), 311, 0.55)
@@ -84,11 +102,16 @@ func _build() -> void:
 	_meshes[V_LEAF_DRY] = _make_leaf(Color(0.55, 0.40, 0.18))        # feuille morte ocre
 	_meshes[V_LEAF_FRESH] = _make_leaf(Color(0.74, 0.34, 0.46))      # pétale coloré
 	_meshes[V_SHELL] = _make_shell(Color(0.88, 0.83, 0.72))          # coquillage spiralé crème
+	_meshes[V_SEA_ROCK_A] = _make_pebble(Color(0.40, 0.46, 0.42), 2203, 0.85, 0.27)   # boulder de fond, mousse grise
+	_meshes[V_SEA_ROCK_B] = _make_pebble(Color(0.27, 0.33, 0.34), 2711, 0.80, 0.33)   # boulder de fond, sombre
+	_meshes[V_STARFISH] = _make_starfish(Color(0.92, 0.45, 0.20))    # étoile de mer orange
+	_meshes[V_CORAL_GLOW] = _make_coral(Color(0.10, 0.55, 0.60))     # corail biolum (teinte teal)
+	_meshes[V_ANEMONE_GLOW] = _make_anemone(Color(0.65, 0.20, 0.55)) # anémone biolum (teinte magenta)
 
 # --- Générateurs par catégorie ---
 
 # Caillou : icosphère subdiv 0 (20 tris) déformée par bruit, aplatie, base ~ y=0 (posé au sol).
-func _make_pebble(base_color: Color, noise_seed: int, flatten: float) -> ArrayMesh:
+func _make_pebble(base_color: Color, noise_seed: int, flatten: float, radius := 0.12) -> ArrayMesh:
 	var ico := PlanetGenerator._build_icosphere(0)
 	var verts: PackedVector3Array = ico.verts
 	var idx: PackedInt32Array = ico.indices
@@ -96,7 +119,6 @@ func _make_pebble(base_color: Color, noise_seed: int, flatten: float) -> ArrayMe
 	n.noise_type = FastNoiseLite.TYPE_PERLIN
 	n.seed = noise_seed
 	n.frequency = 1.7
-	var radius := 0.12
 	var dpos := PackedVector3Array()
 	dpos.resize(verts.size())
 	for i in verts.size():
@@ -207,6 +229,71 @@ func _make_shell(color: Color) -> ArrayMesh:
 			_tube(st, color.darkened(0.10 * t), prev, pt, prev_tr, tr, 6)
 		prev = pt
 		prev_tr = tr
+	st.generate_normals()
+	return st.commit()
+
+# Matériau ÉMISSIF (bioluminescence) : albedo = couleur de vertex, + émission colorée (glow visible dans le noir).
+func _make_glow_mat(emis: Color, energy: float) -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.vertex_color_use_as_albedo = true
+	m.roughness = 0.7
+	m.emission_enabled = true
+	m.emission = emis
+	m.emission_energy_multiplier = energy
+	m.cull_mode = BaseMaterial3D.CULL_DISABLED
+	return m
+
+# Étoile de mer : 5 bras (étoile à 10 sommets alternés tip/creux) en éventail depuis un centre légèrement bombé.
+# Plate sur le fond (matériau double face). Bas-poly.
+func _make_starfish(color: Color) -> ArrayMesh:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var arms := 5
+	var inner := 0.055
+	var outer := 0.17
+	var ctr := Vector3(0.0, 0.035, 0.0)
+	var ring: Array[Vector3] = []
+	for k in arms * 2:
+		var ang := TAU * float(k) / float(arms * 2)
+		var rad := outer if (k % 2 == 0) else inner
+		var y := 0.012 if (k % 2 == 0) else 0.022
+		ring.append(Vector3(cos(ang) * rad, y, sin(ang) * rad))
+	for k in ring.size():
+		_tri(st, color.lightened(0.05), ctr, ring[k], ring[(k + 1) % ring.size()])
+	st.generate_normals()
+	return st.commit()
+
+# Corail ramifié (bioluminescent) : tronc + 4 branches montantes + nodule lumineux au bout. Teinte teal.
+func _make_coral(color: Color) -> ArrayMesh:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 9001
+	var trunk := Vector3(0.0, 0.15, 0.0)
+	_tube(st, color, Vector3.ZERO, trunk, 0.032, 0.02, 5)
+	for b in 4:
+		var ang := TAU * float(b) / 4.0 + rng.randf()
+		var out := 0.06 + rng.randf() * 0.05
+		var up := 0.10 + rng.randf() * 0.09
+		var base := trunk + Vector3(0.0, rng.randf_range(-0.04, 0.02), 0.0)
+		var tip := trunk + Vector3(cos(ang) * out, up, sin(ang) * out)
+		_tube(st, color.lightened(0.08), base, tip, 0.016, 0.007, 5)
+		_blob(st, color.lightened(0.25), tip, 0.022, 1.0)
+	st.generate_normals()
+	return st.commit()
+
+# Anémone (bioluminescente) : corps en dôme bas + couronne de courtes tentacules montantes. Teinte magenta.
+func _make_anemone(color: Color) -> ArrayMesh:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 9007
+	_blob(st, color.darkened(0.1), Vector3(0.0, 0.035, 0.0), 0.075, 0.6)
+	for t in 10:
+		var ang := TAU * float(t) / 10.0
+		var base := Vector3(cos(ang) * 0.05, 0.045, sin(ang) * 0.05)
+		var tip := base + Vector3(cos(ang) * 0.025, 0.06 + rng.randf() * 0.035, sin(ang) * 0.025)
+		_tube(st, color.lightened(0.18), base, tip, 0.009, 0.004, 4)
 	st.generate_normals()
 	return st.commit()
 

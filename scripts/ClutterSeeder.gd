@@ -14,6 +14,11 @@ const BASE_FILL := 0.42      # proba de base qu'une cellule éligible porte un o
 const MAX_PER_CHUNK := 230   # plafond d'instances par chunk (budget)
 const MAX_SLOPE := 1.0       # tan(angle) max : pas de débris sur falaises (reste sur pentes douces/moyennes)
 const SLOPE_EPS := 4.0       # mètres : pas pour l'estimation de pente
+# Décor de FOND MARIN (sous l'eau). Bathymétrie identique à SurfaceGenerator => les props se posent sur le mesh.
+const BATHY_MAX_DROP := 0.045
+const BATHY_SLOPE := 0.7
+const SEABED_MAX_DEPTH := 0.14   # élévation : au-delà (abysse), pas de décor => près des côtes / bas-fonds
+const SEABED_FILL := 0.32        # proba de base qu'une cellule de fond marin porte un objet
 
 # Renvoie { variant:int -> Array[Transform3D] } en repère LOCAL du chunk (mêmes paramètres
 # (anchor_dir, east, north, phys_radius, vertical_scale) que SurfaceGenerator.generate_chunk).
@@ -47,6 +52,17 @@ static func seed_chunk(seed_local: int, cx: int, cz: int, anchor_dir: Vector3, e
 			var dir := _dir(anchor_dir, east, north, phys_radius, gx, gz)
 			var e := pg.sample_elevation(dir)
 			if e < sea:
+				# FOND MARIN (océan) : bande peu profonde (côtes/bas-fonds). Pose sur le fond BATHYMÉTRIQUE (= mesh).
+				var depth := sea - e
+				if depth > SEABED_MAX_DEPTH:
+					continue   # abysse : trop profond/sombre => rien
+				if rng.randf() > SEABED_FILL:
+					continue
+				var sv := _pick_seabed(rng)
+				var floor_e := sea - minf(depth * BATHY_SLOPE, BATHY_MAX_DROP)
+				var sloc := _local_pos_at(inv, dir, center, floor_e, phys_radius, vertical_scale)
+				_append(out, sv, _seabed_transform(sv, sloc, rng))
+				count += 1
 				continue
 			if flow_map and (flow_map.is_lake_at(dir) or flow_map.river_at(dir) > PlanetFlowMap.WATER_THRESHOLD):
 				continue   # phase 23 : pas de clutter dans l'eau (rivière/lac)
@@ -130,6 +146,44 @@ static func _instance_transform(variant: int, local: Vector3, rng: RandomNumberG
 	b = Basis.from_euler(Vector3(rng.randf_range(-0.18, 0.18), yaw, rng.randf_range(-0.18, 0.18)))
 	var s := rng.randf_range(0.6, 1.5)
 	return Transform3D(b.scaled(Vector3(s, s * rng.randf_range(0.8, 1.05), s)), local - Vector3(0.0, 0.05, 0.0))
+
+# Décor de fond marin pondéré : rochers communs, étoiles/coquillages moyens, biolum (corail/anémone) plus rare.
+static func _pick_seabed(rng: RandomNumberGenerator) -> int:
+	var r := rng.randf()
+	if r < 0.42:
+		return ClutterLibrary.SEA_ROCK_VARIANTS[rng.randi() % ClutterLibrary.SEA_ROCK_VARIANTS.size()]
+	elif r < 0.62:
+		return ClutterLibrary.V_STARFISH
+	elif r < 0.78:
+		return ClutterLibrary.V_SHELL
+	elif r < 0.90:
+		return ClutterLibrary.V_CORAL_GLOW
+	return ClutterLibrary.V_ANEMONE_GLOW
+
+# Position locale sur le fond marin à l'élévation `floor_e` (bathymétrie) — sans clamp au niveau de mer.
+static func _local_pos_at(inv: Basis, dir: Vector3, center: Vector3, floor_e: float, phys_radius: float, vertical_scale: float) -> Vector3:
+	var sphere_pos := dir * (phys_radius + floor_e * vertical_scale)
+	return inv * (sphere_pos - center)
+
+# Pose des props de fond : rochers basculés/enfoncés ; étoile/coquillage à plat ; corail/anémone droits.
+static func _seabed_transform(variant: int, local: Vector3, rng: RandomNumberGenerator) -> Transform3D:
+	var yaw := rng.randf() * TAU
+	if variant in ClutterLibrary.SEA_ROCK_VARIANTS:
+		var b := Basis.from_euler(Vector3(rng.randf_range(-0.25, 0.25), yaw, rng.randf_range(-0.25, 0.25)))
+		var s := rng.randf_range(0.7, 1.7)
+		return Transform3D(b.scaled(Vector3(s, s * rng.randf_range(0.7, 1.0), s)), local - Vector3(0.0, 0.06, 0.0))
+	if variant == ClutterLibrary.V_STARFISH:
+		var bs := Basis.from_euler(Vector3(rng.randf_range(-0.12, 0.12), yaw, rng.randf_range(-0.12, 0.12)))
+		var ss := rng.randf_range(0.7, 1.3)
+		return Transform3D(bs.scaled(Vector3(ss, ss, ss)), local - Vector3(0.0, 0.02, 0.0))
+	if variant == ClutterLibrary.V_SHELL:
+		var bh := Basis.from_euler(Vector3(rng.randf_range(1.1, 1.5), yaw, rng.randf_range(-0.2, 0.2)))
+		var sh := rng.randf_range(0.6, 1.1)
+		return Transform3D(bh.scaled(Vector3(sh, sh, sh)), local - Vector3(0.0, 0.03, 0.0))
+	# Corail / anémone : debout, lacet seul.
+	var bc := Basis(Vector3.UP, yaw)
+	var sc := rng.randf_range(0.7, 1.4)
+	return Transform3D(bc.scaled(Vector3(sc, sc * rng.randf_range(0.9, 1.3), sc)), local - Vector3(0.0, 0.02, 0.0))
 
 # --- Helpers géométriques (mêmes formules que VegetationSeeder / SurfaceGenerator) ---
 
