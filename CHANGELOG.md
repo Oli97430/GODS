@@ -5,7 +5,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/) · Versioning: [SemVer](
 
 ## [Unreleased]
 
-## [0.10.1] — 2026-06-04
+## [0.11.0] — 2026-06-05
+### Added
+- **Smart-plug fan feedback (opt-in hardware)** — drive a TP-Link Kasa **HS-100 / HS-110** smart plug on your LAN so a fan (or any device) plugged into it turns **ON while you fly** (Iron Man flight or paraglider) and **OFF when you walk**. Fully local (Kasa protocol, no cloud), auto-discovers the plug on the network, off-thread (no VR hitch), gentle on the device, and switches the plug off on quit. New **Options → "Plug"** tab (desktop **and** VR wrist): enable toggle, optional name / fixed-IP fields, **Search** & **Test** buttons, and a live status line. Disabled-friendly: no plug on the network → silent no-op, the game is never affected.
 ### Fixed
 - **Co-op:** drone deaths no longer crash the host — a signal-arity regression introduced by v0.10.0's enemy-variety change.
 ### Changed
@@ -64,7 +66,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/) · Versioning: [SemVer](
 ### Added
 - Initial early-access release: seamless galaxy → system → planet → surface explorer, deterministic by seed, PCVR + desktop.
 
-[Unreleased]: https://github.com/Oli97430/GODS/compare/v0.10.1...HEAD
+[Unreleased]: https://github.com/Oli97430/GODS/compare/v0.11.0...HEAD
+[0.11.0]: https://github.com/Oli97430/GODS/compare/v0.10.1...v0.11.0
 [0.10.1]: https://github.com/Oli97430/GODS/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/Oli97430/GODS/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/Oli97430/GODS/compare/v0.8.0...v0.9.0

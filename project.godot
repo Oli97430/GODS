@@ -29,6 +29,7 @@ CoopSync="*res://scripts/net/CoopSync.gd"
 CoopCombat="*res://scripts/net/CoopCombat.gd"
 CoopMenu="*res://scripts/net/CoopMenu.gd"
 Inventory="*res://scripts/Inventory.gd"
+SmartPlug="*res://scripts/SmartPlug.gd"
 
 [physics]
 

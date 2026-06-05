@@ -22,6 +22,7 @@ const DEF := {
 	"haptics_enabled": true, "haptics_intensity": 1.0,
 	"vignette_on": true, "vignette_strength": 0.6, "turn_mode": 0, "snap_angle": 30.0,
 	"coop_ip": "127.0.0.1",
+	"smartplug_enabled": true, "smartplug_ip": "", "smartplug_name": "",
 }
 
 var render_scale: float = DEF.render_scale
@@ -43,6 +44,9 @@ var vignette_strength: float = DEF.vignette_strength
 var turn_mode: int = DEF.turn_mode          # 0 = snap (par cran, confort), 1 = continue (smooth)
 var snap_angle: float = DEF.snap_angle      # degrés par cran de snap-turn
 var coop_ip: String = DEF.coop_ip           # coop : dernière IP d'hôte saisie (réutilisée par le menu COOP / la montre)
+var smartplug_enabled: bool = DEF.smartplug_enabled   # prise Kasa HS-110 : ventilateur ON en vol, OFF à la marche
+var smartplug_ip: String = DEF.smartplug_ip           # IP fixe de la prise ("" = découverte auto par broadcast)
+var smartplug_name: String = DEF.smartplug_name       # nom (alias Kasa) ciblé ("" = 1re prise Kasa trouvée)
 
 var _has_file := false
 
@@ -56,6 +60,7 @@ func apply_all() -> void:
 	apply_fx()
 	apply_audio()
 	apply_haptics()
+	apply_smartplug()
 	if _has_file:
 		apply_window()   # ne force fenêtre/résolution QUE si un réglage explicite existe (sinon défaut moteur)
 
@@ -104,6 +109,9 @@ func apply_haptics() -> void:
 	BHaptics.set_enabled(haptics_enabled)
 	BHaptics.set_intensity(haptics_intensity)
 
+func apply_smartplug() -> void:
+	SmartPlug.configure(smartplug_enabled, smartplug_ip, smartplug_name)
+
 func reset_defaults() -> void:
 	render_scale = DEF.render_scale
 	msaa_index = DEF.msaa_index
@@ -124,10 +132,14 @@ func reset_defaults() -> void:
 	turn_mode = DEF.turn_mode
 	snap_angle = DEF.snap_angle
 	coop_ip = DEF.coop_ip
+	smartplug_enabled = DEF.smartplug_enabled
+	smartplug_ip = DEF.smartplug_ip
+	smartplug_name = DEF.smartplug_name
 	apply_graphics()
 	apply_fx()
 	apply_audio()
 	apply_haptics()
+	apply_smartplug()
 	apply_window()
 	save_settings()
 
@@ -159,6 +171,9 @@ func load_settings() -> void:
 	snap_angle = float(cfg.get_value("comfort", "snap_angle", snap_angle))
 	vignette_strength = float(cfg.get_value("comfort", "vignette_strength", vignette_strength))
 	coop_ip = str(cfg.get_value("coop", "ip", coop_ip))
+	smartplug_enabled = cfg.get_value("smartplug", "enabled", smartplug_enabled)
+	smartplug_ip = str(cfg.get_value("smartplug", "ip", smartplug_ip))
+	smartplug_name = str(cfg.get_value("smartplug", "name", smartplug_name))
 
 func save_settings() -> void:
 	var cfg := ConfigFile.new()
@@ -181,5 +196,7 @@ func save_settings() -> void:
 	cfg.set_value("comfort", "turn_mode", turn_mode)
 	cfg.set_value("comfort", "snap_angle", snap_angle)
 	cfg.set_value("coop", "ip", coop_ip)
+	cfg.set_value("smartplug", "enabled", smartplug_enabled)
+	cfg.set_value("smartplug", "ip", smartplug_ip)
 	cfg.save(PATH)
 	_has_file = true

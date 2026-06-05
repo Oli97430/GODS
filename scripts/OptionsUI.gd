@@ -10,12 +10,23 @@ static func build_tabs(tabs: TabContainer) -> Label:
 	_build_graphics(_tab(tabs, "Graphismes"))
 	_build_comfort(_tab(tabs, "Confort"))
 	_build_audio(_tab(tabs, "Audio"))
-	return _build_haptics(_tab(tabs, "Haptique"))
+	var status := _build_haptics(_tab(tabs, "Haptique"))
+	_build_smartplug(_tab(tabs, "Prise"))
+	return status
 
 static func status_text() -> String:
 	if BHaptics.is_player_connected():
 		return "Gilet X40 : CONNECTÉ ✓"
 	return "Gilet X40 : non détecté — lance le bHaptics Player"
+
+static func smartplug_status_text() -> String:
+	if not Settings.smartplug_enabled:
+		return "Prise : désactivée"
+	if SmartPlug.current_ip() != "":
+		return "Prise : %s @ %s ✓" % [SmartPlug.device_label(), SmartPlug.current_ip()]
+	if SmartPlug.is_searching():
+		return "Prise : recherche…"
+	return "Prise : non trouvée — vérifie le Wi-Fi (ou IP/nom)"
 
 # Un SEUL handler générique : Settings.set + apply ciblé + save. Sans état => statique, lié via .bind().
 static func _on_value(value: Variant, field: String, category: String) -> void:
@@ -26,6 +37,7 @@ static func _on_value(value: Variant, field: String, category: String) -> void:
 		"audio": Settings.apply_audio()
 		"haptics": Settings.apply_haptics()
 		"fx": Settings.apply_fx()
+		"smartplug": Settings.apply_smartplug()
 	Settings.save_settings()
 
 # --- Onglets ---
@@ -83,6 +95,41 @@ static func _build_haptics(v: VBoxContainer) -> Label:
 	hint.modulate = Color(1, 1, 1, 0.6)
 	v.add_child(hint)
 	return status
+
+static func _build_smartplug(v: VBoxContainer) -> void:
+	var status := Label.new()
+	status.text = smartplug_status_text()
+	v.add_child(status)
+	# Statut LIVE (1 s) : reflète découverte/connexion sans rouvrir le menu (poll léger d'une chaîne courte).
+	var timer := Timer.new()
+	timer.wait_time = 1.0
+	timer.autostart = true
+	v.add_child(timer)
+	timer.timeout.connect(func(): status.text = smartplug_status_text())
+
+	_check(v, "Prise connectée (ventilo en vol)", Settings.smartplug_enabled, "smartplug_enabled", "smartplug")
+	_text(v, "Nom de la prise", Settings.smartplug_name, "smartplug_name", "smartplug", "vide = 1re prise Kasa")
+	_text(v, "IP fixe", Settings.smartplug_ip, "smartplug_ip", "smartplug", "vide = découverte auto")
+
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 12)
+	var find := Button.new()
+	find.text = "Rechercher"
+	find.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	find.pressed.connect(func(): SmartPlug.rediscover())   # le statut « recherche… » s'affiche via le timer 1 s
+	row.add_child(find)
+	var test := Button.new()
+	test.text = "Tester (on/off)"
+	test.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	test.pressed.connect(func(): SmartPlug.test_pulse())
+	row.add_child(test)
+	v.add_child(row)
+
+	var hint := Label.new()
+	hint.text = "Le ventilateur branché sur la prise s'allume quand tu voles (armure ou parapente) et s'éteint à la marche. Pour cibler une prise précise parmi plusieurs, nomme-la dans l'appli Kasa et reporte ce nom ici (saisie texte plus simple en mode bureau)."
+	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	hint.modulate = Color(1, 1, 1, 0.6)
+	v.add_child(hint)
 
 # --- Formatteurs de valeur ---
 
@@ -144,4 +191,21 @@ static func _check(box: VBoxContainer, label: String, val: bool, field: String, 
 	c.button_pressed = val
 	row.add_child(c)
 	c.toggled.connect(_on_value.bind(field, category))
+	box.add_child(row)
+
+static func _text(box: VBoxContainer, label: String, val: String, field: String, category: String, placeholder := "") -> void:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 12)
+	var l := Label.new()
+	l.text = label
+	l.custom_minimum_size.x = 210
+	row.add_child(l)
+	var e := LineEdit.new()
+	e.text = val
+	e.placeholder_text = placeholder
+	e.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(e)
+	# Valide à l'Entrée ET à la perte de focus (le clic ailleurs commit le texte saisi).
+	e.text_submitted.connect(func(t): _on_value(t, field, category))
+	e.focus_exited.connect(func(): _on_value(e.text, field, category))
 	box.add_child(row)

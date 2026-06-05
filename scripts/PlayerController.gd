@@ -909,6 +909,7 @@ func _physics_process(delta: float) -> void:
 		_physics_xr(delta)
 	else:
 		_physics_desktop(delta)
+	SmartPlug.set_airborne(_flying or _gliding)   # prise connectée : ventilateur ON en vol, OFF à la marche
 	_update_steps(delta)
 	_update_paraglider(delta)
 	_update_impact(delta)   # atterrissage de puissance (chute rapide) — tous modes sauf nage
