@@ -14,6 +14,7 @@ const SPEED := 4.5
 const STRIDE := 1.7               # m parcourus entre deux foulées
 const JUMP_VELOCITY := 5.0
 const POWER_LAND_SPEED := 11.0   # m/s de chute (vers le bas) au-delà desquels l'atterrissage devient un IMPACT de puissance
+const PLUG_FALL_SPEED := 7.0     # m/s de chute au-delà desquels la prise s'allume aussi (plongeon/saut de falaise) — sentir le souffle avant l'impact
 const MOUSE_SENS := 0.0025
 const PITCH_LIMIT := 1.4
 # XR
@@ -909,7 +910,9 @@ func _physics_process(delta: float) -> void:
 		_physics_xr(delta)
 	else:
 		_physics_desktop(delta)
-	SmartPlug.set_airborne(_flying or _gliding)   # prise connectée : ventilateur ON en vol, OFF à la marche
+	# Prise connectée : ventilo ON en vol/parapente OU en chute rapide (plongeon, saut de falaise) ; OFF sinon.
+	var falling_fast := not is_on_floor() and not _swimming and get_real_velocity().y < -PLUG_FALL_SPEED
+	SmartPlug.set_airborne(_flying or _gliding or falling_fast)
 	_update_steps(delta)
 	_update_paraglider(delta)
 	_update_impact(delta)   # atterrissage de puissance (chute rapide) — tous modes sauf nage

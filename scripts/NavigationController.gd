@@ -124,7 +124,7 @@ func _apply_transform() -> void:
 # ----------------------- BUREAU (souris) -----------------------
 
 func _unhandled_input(event: InputEvent) -> void:
-	if GameState.options_open:
+	if GameState.options_open or GameState.start_menu_open:
 		return
 	if GameState.xr_active or view_manager.is_transitioning():
 		return
@@ -212,7 +212,7 @@ func _zoom(factor: float) -> void:
 # ----------------------- XR (manettes) -----------------------
 
 func _process(delta: float) -> void:
-	if GameState.options_open:
+	if GameState.options_open or GameState.start_menu_open:
 		return
 	if not GameState.xr_active or view_manager.is_transitioning():
 		return

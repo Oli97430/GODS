@@ -1,4 +1,4 @@
-[gd_scene load_steps=16 format=3]
+[gd_scene load_steps=17 format=3]
 
 [ext_resource type="Script" path="res://scripts/XRManager.gd" id="1_xrmgr"]
 [ext_resource type="Script" path="res://scripts/GalaxyView.gd" id="2_galv"]
@@ -12,6 +12,7 @@
 [ext_resource type="Script" path="res://scripts/HandVisualizer.gd" id="10_handviz"]
 [ext_resource type="PackedScene" path="res://scenes/WristComputer.tscn" id="11_wristcomp"]
 [ext_resource type="Script" path="res://scripts/TitleScreen.gd" id="12_title"]
+[ext_resource type="Script" path="res://scripts/StartMenu.gd" id="13_startmenu"]
 
 [sub_resource type="Environment" id="Environment_space"]
 background_mode = 1
@@ -112,3 +113,12 @@ script = ExtResource("8_music")
 
 [node name="TitleScreen" type="Node3D" parent="."]
 script = ExtResource("12_title")
+
+[node name="StartMenu" type="Node3D" parent="."]
+script = ExtResource("13_startmenu")
+galaxy_view_path = NodePath("../GalaxyView")
+view_manager_path = NodePath("../ViewManager")
+camera_path = NodePath("../XROrigin3D/XRCamera3D")
+left_controller_path = NodePath("../XROrigin3D/LeftController")
+right_controller_path = NodePath("../XROrigin3D/RightController")
+hand_tracking_path = NodePath("../XROrigin3D/HandTracking")

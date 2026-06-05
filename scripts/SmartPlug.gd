@@ -18,7 +18,8 @@ const CMD_ON := '{"system":{"set_relay_state":{"state":1}}}'
 const CMD_OFF := '{"system":{"set_relay_state":{"state":0}}}'
 const CMD_INFO := '{"system":{"get_sysinfo":{}}}'
 
-const DEBOUNCE := 0.4        # s : état vol/marche STABLE requis avant de commuter la prise (anti-flicker)
+const ON_DEBOUNCE := 0.0     # s : allumage IMMÉDIAT (vol/chute délibérés, aucun flicker) — « anticipation » du souffle
+const OFF_DEBOUNCE := 0.4    # s : extinction TEMPORISÉE (anti-flicker si on touche le sol une fraction de seconde)
 const HOLD_TIMEOUT := 1.5    # s : sans rafraîchissement (contrôleur joueur muet = embarqué/menu/quitté) => OFF de sécurité
 const RESEND := 6.0          # s : ré-affirme périodiquement l'état courant (auto-réparation si un paquet s'est perdu)
 const DISCOVER_CD := 8.0     # s : délai entre deux découvertes infructueuses (évite le spam de broadcast)
@@ -59,7 +60,8 @@ func _process(delta: float) -> void:
 		_desired = false
 	if _desired != _sent:
 		_stable += delta
-		if _stable >= DEBOUNCE:
+		var thresh := ON_DEBOUNCE if _desired else OFF_DEBOUNCE   # allumage immédiat, extinction temporisée
+		if _stable >= thresh:
 			_try_commit()
 	else:
 		_stable = 0.0

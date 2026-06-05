@@ -23,6 +23,9 @@ var atmosphere_enabled: bool = true
 # Vrai quand le menu Options (overlay bureau) est ouvert : bloque l'entrée jeu (locomotion/navigation).
 var options_open: bool = false
 
+# Vrai tant que l'écran de DÉPART (« choisir un système ») est ouvert au lancement : gèle la nav galaxie.
+var start_menu_open: bool = false
+
 # --- Tableau de bord COMBAT (phase 26 CP3) : blackboard partagé joueur ↔ vagues ↔ HUD/montre. ---
 # Écrit par PlayerController (PV/mort) et WaveManager (vague/score) ; lu par CombatHUD (bureau) + WristComputer (VR).
 var combat_active: bool = false   # une arme est équipée (combat opt-in en cours)
