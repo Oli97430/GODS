@@ -446,6 +446,11 @@ func _synth_enemy_shot() -> AudioStreamWAV:
 var _hit_confirm_wav: AudioStreamWAV
 var _kill_confirm_wav: AudioStreamWAV
 
+# Ping de confirmation UI (réutilise le son doux du poignet) — ex. DÉMARRER de l'écran de départ.
+func play_ui_confirm() -> void:
+	if _ui_clicks != null:
+		_ui_clicks.confirm()
+
 # Confirmation de tir joueur sur un drone : « tic » sec et aigu (2D, non spatialisé => net). killed = drone
 # détruit => version plus brillante/montante. Appelé par PlayerController au toucher / à la destruction.
 func play_hit_confirm(killed: bool) -> void:

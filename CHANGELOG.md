@@ -5,6 +5,16 @@ Format: [Keep a Changelog](https://keepachangelog.com/) · Versioning: [SemVer](
 
 ## [Unreleased]
 
+## [0.13.0] — 2026-06-05
+### Added
+- **Richer, smoother start screen** — the "Choose a system" screen now shows a **live schematic preview** of the selected system (star + orbiting planets), **richer info** (star class & descriptor, planets, moons, rings, tags), a **color chip** per star class, a **Continue** button (resumes your last seed + system), and a **Copy seed** button (share a universe). It **fades in** after the logo, with a soft confirmation chime on start.
+- **Change system mid-game** — reopen the start screen at any time from the **VR wrist** ("↩ Change system") or the **F3** key (desktop); a clean teardown returns you to the galaxy first.
+- **Point at a star in the galaxy** (VR) — aim the right controller at any star behind the panel and pull the trigger to target it, even one outside the featured list.
+### Changed
+- **Trees are 40% bigger** (visual **and** collision; deterministic — same seed, same forest, just larger).
+### Fixed
+- The smart-plug **name** filter is now actually saved to disk (it was loaded but never persisted).
+
 ## [0.12.0] — 2026-06-05
 ### Added
 - **Start screen — choose your system** — the game now opens on a **"Choose a system"** screen (desktop overlay **and** a VR worldspace panel): set or **🎲 dice** a *seed* (the universe is deterministic & shareable by seed) and pick a star system from a list — each shows its star class and planet count — then **▶ Start** drops you **straight into that system**. From there the usual system → planet → surface descent continues.
@@ -72,7 +82,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/) · Versioning: [SemVer](
 ### Added
 - Initial early-access release: seamless galaxy → system → planet → surface explorer, deterministic by seed, PCVR + desktop.
 
-[Unreleased]: https://github.com/Oli97430/GODS/compare/v0.12.0...HEAD
+[Unreleased]: https://github.com/Oli97430/GODS/compare/v0.13.0...HEAD
+[0.13.0]: https://github.com/Oli97430/GODS/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/Oli97430/GODS/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/Oli97430/GODS/compare/v0.10.1...v0.11.0
 [0.10.1]: https://github.com/Oli97430/GODS/compare/v0.10.0...v0.10.1

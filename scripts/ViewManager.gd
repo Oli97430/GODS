@@ -103,6 +103,49 @@ func exit_to_galaxy() -> void:
 	_release_flow_map()   # phase 23 : libère la carte hydrologique (sécurité)
 	print("[ViewManager] Sortie vers galaxie.")
 
+# Rouvre l'ÉCRAN DE DÉPART (« changer de système ») depuis N'IMPORTE QUELLE échelle : teardown propre
+# vers la galaxie (réutilise la sortie surface), puis ré-instancie StartMenu.
+func return_to_start_menu() -> void:
+	if _transitioning or GameState.start_menu_open:
+		return
+	_transitioning = true
+	call_deferred("_clear_transition")
+	# Teardown surface si on est au sol (libère joueur + streaming, comme exit_to_planet).
+	if GameState.current_scale == GameState.Scale.SURFACE:
+		surface_view.shutdown_streaming()
+		var player = surface_view.get_player()
+		if player != null:
+			if not GameState.xr_active and player.get_active_camera() != null:
+				player.get_active_camera().environment = null
+			player.exit()
+		xr_camera.environment = null
+	GameState.combat_active = false   # sécurité : coupe un éventuel combat en cours
+	_park_xr_rig_at_home()
+	surface_view.visible = false
+	planet_view.visible = false
+	system_view.visible = false
+	galaxy_view.visible = true
+	_orbit_planet_index = -1
+	_release_flow_map()
+	GameState.current_scale = GameState.Scale.GALAXY
+	nav.set_active_view(galaxy_view, GameState.Scale.GALAXY, false)
+	if not GameState.xr_active:
+		desktop_camera.current = true
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	_show_start_menu()
+	print("[ViewManager] Retour à l'écran de départ (changer de système).")
+
+func _show_start_menu() -> void:
+	var sm = preload("res://scripts/StartMenu.gd").new()
+	sm.skip_dev_bypass = true   # rouvert en jeu : ignore les flags dev (--auto-surface / --start-system)
+	sm.galaxy_view_path = NodePath("../GalaxyView")
+	sm.view_manager_path = NodePath("../ViewManager")
+	sm.camera_path = NodePath("../XROrigin3D/XRCamera3D")
+	sm.left_controller_path = NodePath("../XROrigin3D/LeftController")
+	sm.right_controller_path = NodePath("../XROrigin3D/RightController")
+	sm.hand_tracking_path = NodePath("../XROrigin3D/HandTracking")
+	get_parent().add_child(sm)
+
 # ----------------------- SYSTEM <-> PLANET -----------------------
 
 # SYSTEM -> PLANET : sélection d'une planète -> vue orbite (planète qui tourne via TimeOfDay).

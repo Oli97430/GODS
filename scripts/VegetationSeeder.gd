@@ -17,6 +17,7 @@ const MAX_TREES := 1120     # ×2 : forêt deux fois plus dense (surveiller fram
 const MAX_ROCKS := 44
 const MAX_GRASS := 20000    # ×20 : tapis d'herbe très dense (touffes allégées à 3 brins pour le framerate)
 const TREE_MAX_SLOPE := 0.6 # tan(angle) max pour les arbres (~31°)
+const TREE_SIZE_MULT := 1.4 # arbres 40% plus gros : multiplie l'échelle PAR INSTANCE (la capsule de collision suit via t.basis.get_scale)
 const SLOPE_EPS := 4.0      # mètres : pas pour l'estimation de pente
 const RIVER_BANK_BOOST := 1.8   # phase 23 : densité de végétation × jusqu'à (1+ce) sur les berges de rivière
 const RIVER_WATER_THR := PlanetFlowMap.WATER_THRESHOLD   # phase 23 : au-dessus => DANS l'eau (rien n'y pousse)
@@ -187,7 +188,7 @@ static func _instance_transform(variant: int, local: Vector3, rng: RandomNumberG
 	# Arbres L-system : déjà à taille « réaliste » (3-8 m) => échelle modérée + INCLINAISON légère
 	# (vent dominant) ; la base reste plantée au sol (rotation autour de l'origine = pied).
 	if VegetationLibrary.is_tree_variant(variant):
-		var sc := rng.randf_range(0.9, 1.6)
+		var sc := rng.randf_range(0.9, 1.6) * TREE_SIZE_MULT   # +40% (le tirage RNG est inchangé => déterminisme préservé)
 		var lean_az := WIND_LEAN_AZIMUTH + rng.randf_range(-1.1, 1.1)   # autour du vent dominant
 		var lean := rng.randf_range(0.0, 0.13)                          # ~0..7.5° d'inclinaison
 		var axis := Vector3(cos(lean_az), 0.0, sin(lean_az))

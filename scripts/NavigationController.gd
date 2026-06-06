@@ -128,6 +128,11 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if GameState.xr_active or view_manager.is_transitioning():
 		return
+	# F3 (bureau, toutes échelles) : rouvre l'écran de départ (« changer de système »).
+	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_F3:
+		view_manager.return_to_start_menu()
+		get_viewport().set_input_as_handled()
+		return
 	# Les touches (Échap = retour, Entrée = confirmer, A = toggle ciel) sont toujours traitées.
 	if event is InputEventKey and event.pressed and not event.echo:
 		_handle_key(event)

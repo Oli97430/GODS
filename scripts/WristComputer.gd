@@ -202,6 +202,12 @@ func _build_ui() -> void:
 	_coop_leave_btn = _mk_coop_button("Quitter", _on_coop_leave)
 	coop_row.add_child(_coop_leave_btn)
 
+	# Changer de système : rouvre l'écran de départ depuis n'importe quelle échelle (vol / orbite / sol).
+	var sys_btn := _mk_coop_button("↩ Changer de système", _on_change_system)
+	sys_btn.add_theme_font_size_override("font_size", 17)
+	sys_btn.custom_minimum_size = Vector2(0, 50)
+	vbox.add_child(sys_btn)
+
 	_action_button = Button.new()
 	_action_button.text = "—"
 	_action_button.add_theme_font_size_override("font_size", 20)
@@ -533,6 +539,12 @@ func _on_action() -> void:
 	if _vm == null:
 		return
 	_vm.ascend_one_scale()
+
+# Bouton « Changer de système » : rouvre l'écran de départ (teardown propre vers la galaxie).
+func _on_change_system() -> void:
+	ui_confirm.emit()
+	if _vm != null and _vm.has_method("return_to_start_menu"):
+		_vm.return_to_start_menu()
 
 # --- Contrôle du temps (phase 12) ---
 

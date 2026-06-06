@@ -41,6 +41,10 @@ func _on_poke() -> void:
 func _on_confirm() -> void:
 	_play(_confirm)
 
+# Confirmation PUBLIQUE (réutilisée par l'écran de départ au DÉMARRER) — même son doux que le poignet.
+func confirm() -> void:
+	_play(_confirm)
+
 func _on_cancel() -> void:
 	_play(_cancel)
 

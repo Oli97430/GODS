@@ -23,6 +23,7 @@ const DEF := {
 	"vignette_on": true, "vignette_strength": 0.6, "turn_mode": 0, "snap_angle": 30.0,
 	"coop_ip": "127.0.0.1",
 	"smartplug_enabled": true, "smartplug_ip": "", "smartplug_name": "",
+	"start_last_seed": -1, "start_last_system": -1,
 }
 
 var render_scale: float = DEF.render_scale
@@ -47,6 +48,8 @@ var coop_ip: String = DEF.coop_ip           # coop : dernière IP d'hôte saisie
 var smartplug_enabled: bool = DEF.smartplug_enabled   # prise Kasa HS-110 : ventilateur ON en vol, OFF à la marche
 var smartplug_ip: String = DEF.smartplug_ip           # IP fixe de la prise ("" = découverte auto par broadcast)
 var smartplug_name: String = DEF.smartplug_name       # nom (alias Kasa) ciblé ("" = 1re prise Kasa trouvée)
+var start_last_seed: int = DEF.start_last_seed         # écran de départ : dernier seed lancé (-1 = aucun) → « Continuer »
+var start_last_system: int = DEF.start_last_system     # écran de départ : dernier index système lancé (-1 = aucun)
 
 var _has_file := false
 
@@ -174,6 +177,8 @@ func load_settings() -> void:
 	smartplug_enabled = cfg.get_value("smartplug", "enabled", smartplug_enabled)
 	smartplug_ip = str(cfg.get_value("smartplug", "ip", smartplug_ip))
 	smartplug_name = str(cfg.get_value("smartplug", "name", smartplug_name))
+	start_last_seed = int(cfg.get_value("start", "last_seed", start_last_seed))
+	start_last_system = int(cfg.get_value("start", "last_system", start_last_system))
 
 func save_settings() -> void:
 	var cfg := ConfigFile.new()
@@ -198,5 +203,8 @@ func save_settings() -> void:
 	cfg.set_value("coop", "ip", coop_ip)
 	cfg.set_value("smartplug", "enabled", smartplug_enabled)
 	cfg.set_value("smartplug", "ip", smartplug_ip)
+	cfg.set_value("smartplug", "name", smartplug_name)
+	cfg.set_value("start", "last_seed", start_last_seed)
+	cfg.set_value("start", "last_system", start_last_system)
 	cfg.save(PATH)
 	_has_file = true
