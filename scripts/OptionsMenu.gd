@@ -19,6 +19,8 @@ func _input(event: InputEvent) -> void:
 	if not (event is InputEventKey) or not event.pressed or event.echo:
 		return
 	if event.keycode == KEY_TAB:
+		if GameState.start_menu_open and not _open:
+			return   # écran de départ affiché : ne pas superposer un 2e panneau modal
 		_set_open(not _open)
 		get_viewport().set_input_as_handled()
 	elif event.keycode == KEY_ESCAPE and _open:

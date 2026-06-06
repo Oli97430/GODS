@@ -346,11 +346,21 @@ func _refresh_rows() -> void:
 			var sys = _galaxy.data.systems[_featured[r]]
 			var nm: String = sys.name if sys.name != "" else "Système"
 			b.text = "  %s    ·  %s" % [nm, GalaxyGenerator.star_type_letter(sys.star_type)]
-			b.icon = _chip(GalaxyGenerator.star_color(sys.star_type))   # pastille couleur = classe d'étoile
+			b.icon = _chip_for(sys.star_type)   # pastille couleur = classe d'étoile (mise en cache)
 			b.disabled = false
 			b.visible = true
 		else:
 			b.visible = false
+
+var _chip_cache := {}   # star_type -> ImageTexture : pastille réutilisée (plus de recréation par cran de seed)
+
+# Pastille mise en cache PAR CLASSE SPECTRALE (≤ 7 textures) au lieu d'en recréer 16 à chaque changement de seed.
+func _chip_for(star_type: int) -> ImageTexture:
+	var tex: ImageTexture = _chip_cache.get(star_type)
+	if tex == null:
+		tex = _chip(GalaxyGenerator.star_color(star_type))
+		_chip_cache[star_type] = tex
+	return tex
 
 # Petite pastille de couleur (texture unie) servant d'icône de ligne.
 func _chip(col: Color) -> ImageTexture:

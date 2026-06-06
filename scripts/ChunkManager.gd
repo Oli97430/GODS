@@ -281,6 +281,22 @@ func _update_poi(center: Vector2i) -> void:
 		if chunk.set_poi_state(want, _poi_lib) and want:
 			budget -= 1
 
+# Récolte (CP2) : arbres/rochers proches de `world_pos` à travers les chunks actifs (lecture seule).
+# Retourne un Array de {pos, variant, kind, index, coord} (cf. TerrainChunk.collect_harvestables_near).
+func harvestables_near(world_pos: Vector3, radius: float) -> Array:
+	var out: Array = []
+	for coord in _active:
+		var chunk: TerrainChunk = _active[coord]
+		if is_instance_valid(chunk) and chunk.has_method("collect_harvestables_near"):
+			chunk.collect_harvestables_near(world_pos, radius, coord, out)
+	return out
+
+# Récolte (CP3) : masque/restaure une instance d'arbre/rocher d'un chunk actif (abattage/repousse).
+func set_veg_instance_hidden(coord: Vector2i, variant: int, index: int, hidden: bool) -> void:
+	var chunk: TerrainChunk = _active.get(coord)
+	if is_instance_valid(chunk) and chunk.has_method("set_harvest_instance"):
+		chunk.set_harvest_instance(variant, index, hidden)
+
 # Nom du POI nommé le plus proche d'une position MONDE dans un rayon donné (mètres) — pour le
 # WristComputer. { name:String ("" si aucun), distance:float }. Ignore les POI mineurs (anonymes).
 func nearest_poi_name(world_pos: Vector3, radius: float) -> Dictionary:

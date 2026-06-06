@@ -105,17 +105,22 @@ func _update_hand(hand: int, armed := false) -> void:
 		for mi in bones:
 			mi.visible = false
 		return
+	# Transforms de joints calculés UNE fois par frame, réutilisés pour les sphères ET les os (sinon chaque os
+	# rappelait joint_world() => ~74 appels/main au lieu de 26).
+	var jw: Array = []
+	jw.resize(JOINT_COUNT)
 	# Sphères aux joints (échelle = rayon du joint).
 	for j in JOINT_COUNT:
 		var w := _ht.joint_world(hand, j)
+		jw[j] = w
 		var r := maxf(_ht.joint_radius(hand, j), 0.004)
 		var mi: MeshInstance3D = joints[j]
 		mi.global_transform = Transform3D(w.basis.scaled(Vector3(r, r, r)), w.origin)
 		mi.visible = true
-	# Cylindres entre joints connectés.
+	# Cylindres entre joints connectés (origines déjà calculées ci-dessus).
 	for bi in BONES.size():
-		var a := _ht.joint_world(hand, BONES[bi][0]).origin
-		var b := _ht.joint_world(hand, BONES[bi][1]).origin
+		var a: Vector3 = (jw[BONES[bi][0]] as Transform3D).origin
+		var b: Vector3 = (jw[BONES[bi][1]] as Transform3D).origin
 		_orient_bone(bones[bi], a, b)
 
 # Oriente/échelle un cylindre unité (axe Y, hauteur 1, rayon 1) pour relier a -> b.

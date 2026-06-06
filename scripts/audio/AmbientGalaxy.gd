@@ -22,6 +22,10 @@ var _rng := RandomNumberGenerator.new()
 var _tones: Array = []
 var _tone_timer := 5.0
 var _tone_rng := RandomNumberGenerator.new()
+# Tampons des tonalités actives, RÉUTILISÉS chaque buffer (remplis par index => zéro allocation temps réel).
+var _live: Array = []
+var _live_lg := PackedFloat32Array()
+var _live_rg := PackedFloat32Array()
 
 func _setup() -> void:
 	stream.setup("Ambient_World", -11.0, SR, 0.3)
@@ -32,6 +36,9 @@ func _setup() -> void:
 	_tone_rng.randomize()
 	for i in 3:
 		_tones.append({"osc": Osc.new(SR, 1000.0, Osc.Wave.SINE), "env": _make_env(), "pan": 0.0})
+	_live.resize(_tones.size())          # tampons dimensionnés une fois (réutilisés par _fill)
+	_live_lg.resize(_tones.size())
+	_live_rg.resize(_tones.size())
 
 func _make_env() -> Envelope:
 	var e := Envelope.new(SR)
@@ -52,15 +59,15 @@ func _fill(buf: PackedVector2Array, frames: int) -> void:
 	var lpR := _lpR
 	var bph := _breath
 	# Tonalités actives à ce buffer (+ gains de pan équi-puissance précalculés => points spatialisés dans le ciel).
-	var live: Array = []
-	var live_lg: Array = []
-	var live_rg: Array = []
+	# Écrites par index dans des tampons préalloués (ln = nombre d'actives) : aucune allocation par buffer.
+	var ln := 0
 	for t in _tones:
 		if t.env.is_active():
-			live.append(t)
 			var p: float = t.get("pan", 0.0)
-			live_lg.append(sqrt(0.5 * (1.0 - p)) * 1.4142)
-			live_rg.append(sqrt(0.5 * (1.0 + p)) * 1.4142)
+			_live[ln] = t
+			_live_lg[ln] = sqrt(0.5 * (1.0 - p)) * 1.4142
+			_live_rg[ln] = sqrt(0.5 * (1.0 + p)) * 1.4142
+			ln += 1
 	for i in frames:
 		ph1 += _inc1
 		if ph1 >= TAU:
@@ -83,11 +90,11 @@ func _fill(buf: PackedVector2Array, frames: int) -> void:
 		var base := drone * 0.5
 		var sL := base + lp * 0.13
 		var sR := base + lpR * 0.13
-		for ti in live.size():
-			var t = live[ti]
+		for ti in ln:
+			var t = _live[ti]
 			var tv: float = t.osc.next() * t.env.ar() * 0.06
-			sL += tv * float(live_lg[ti])
-			sR += tv * float(live_rg[ti])
+			sL += tv * _live_lg[ti]
+			sR += tv * _live_rg[ti]
 		buf[i] = Vector2(sL * g, sR * g)
 	_ph1 = ph1
 	_ph2 = ph2

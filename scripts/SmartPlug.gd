@@ -41,6 +41,7 @@ var _sending := false        # un envoi est en cours sur un thread du pool (évi
 var _discovering := false    # une découverte est en cours sur un thread du pool
 var _discover_cd := 0.0      # cooldown courant avant la prochaine tentative de découverte
 var _quit_off_done := false  # garde-fou : prise éteinte une seule fois à la fermeture
+var _pending_off := false    # un OFF de sécurité est demandé alors qu'un envoi est déjà en vol => rejoué au retour
 
 func _ready() -> void:
 	set_process(true)
@@ -159,7 +160,12 @@ func _force_off() -> void:
 	# Extinction immédiate « fire-and-forget » (désactivation de la fonctionnalité).
 	_desired = false
 	_sent = false
-	if _sending or _ip == "":
+	if _ip == "":
+		return
+	if _sending:
+		# Un envoi (souvent la ré-affirmation ON du vol) est déjà parti : on ne peut pas l'empiler. On note
+		# l'OFF de sécurité ; il sera rejoué dès le retour de la tâche, sinon le ventilateur resterait allumé.
+		_pending_off = true
 		return
 	_sending = true
 	WorkerThreadPool.add_task(_task_send.bind(_ip, CMD_OFF, false))
@@ -173,6 +179,12 @@ func _on_sent(ok: bool, state: bool) -> void:
 	_sending = false
 	if ok:
 		_sent = state   # confirmé : _desired==_sent => bascule en ré-affirmation périodique
+	if _pending_off and _ip != "":
+		# Un OFF de sécurité a été demandé pendant l'envoi (fonctionnalité coupée en vol) : rejoue-le maintenant.
+		_pending_off = false
+		_sent = false
+		_sending = true
+		WorkerThreadPool.add_task(_task_send.bind(_ip, CMD_OFF, false))
 
 func _ensure_discovery() -> void:
 	if _discovering or _manual_ip != "" or _discover_cd > 0.0:

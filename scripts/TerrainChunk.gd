@@ -473,6 +473,44 @@ func set_tree_collision(active: bool) -> void:
 	elif _veg_colliders_built:
 		_clear_veg_colliders()   # hors du rayon serré => libère (nœuds bornés au rayon arbres)
 
+# --- Récolte (CP2) : empile dans `out` les arbres/rochers de CE chunk proches de `world_pos` (lecture seule).
+# Chaque entrée : {pos:Vector3 (MONDE), variant:int, kind:"tree"/"rock", index:int, coord:Vector2i}.
+func collect_harvestables_near(world_pos: Vector3, radius: float, coord: Vector2i, out: Array) -> void:
+	if _veg_seeds.is_empty():
+		return
+	var xf := global_transform
+	if xf.origin.distance_to(world_pos) > radius + 130.0:
+		return   # chunk trop loin (origine ≈ centre tangent) => aucun candidat possible
+	var r2 := radius * radius
+	for v in _veg_seeds:
+		var kind := ""
+		if VegetationLibrary.is_tree_variant(v):
+			kind = "tree"
+		elif v in VegetationLibrary.ROCK_VARIANTS:
+			kind = "rock"
+		else:
+			continue
+		var arr: Array = _veg_seeds[v]
+		for i in arr.size():
+			var wp: Vector3 = xf * (arr[i] as Transform3D).origin
+			if wp.distance_squared_to(world_pos) <= r2:
+				out.append({"pos": wp, "variant": v, "kind": kind, "index": i, "coord": coord})
+
+# Récolte (CP3) : masque (échelle ~0) ou restaure une instance d'arbre/rocher dans le MultiMesh (abattage/repousse).
+func set_harvest_instance(variant: int, index: int, hidden: bool) -> void:
+	var mmi: MultiMeshInstance3D = _veg_mm.get(variant)
+	if mmi == null or mmi.multimesh == null:
+		return
+	var mm: MultiMesh = mmi.multimesh
+	if index < 0 or index >= mm.instance_count:
+		return
+	if hidden:
+		mm.set_instance_transform(index, Transform3D(Basis().scaled(Vector3(0.0008, 0.0008, 0.0008)), Vector3.ZERO))
+	elif _veg_seeds.has(variant):
+		var arr: Array = _veg_seeds[variant]
+		if index < arr.size():
+			mm.set_instance_transform(index, arr[index])
+
 func _build_veg_colliders() -> void:
 	_veg_colliders_built = true
 	if _veg_lib == null:

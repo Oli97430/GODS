@@ -34,6 +34,10 @@ func setup(seed_local: int, sun: DirectionalLight3D, player: Node3D, vertical_sc
 	visible = true
 
 func _process(_dt: float) -> void:
+	# Hors-surface (orbite/système/galaxie) la vue SURFACE persiste cachée mais reste dans l'arbre : on coupe
+	# tout travail par-frame (cohérent avec Starfield/SurfaceMoons/SkyManager qui gatent tous sur SURFACE).
+	if GameState.current_scale != GameState.Scale.SURFACE:
+		return
 	if _player == null or _mat == null:
 		return
 	# Suit le joueur en XZ, reste au niveau de mer en Y (=> se recentre au rebase).

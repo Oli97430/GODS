@@ -18,14 +18,20 @@ enum Category { TREE, ROCK, GRASS }
 const TREE_SPECIES_COUNT := 4    # = SpeciesLibrary.SPECIES_COUNT (vérifié par assert en _build)
 const TREE_VARIANTS_PER := 3     # = SpeciesLibrary.VARIANTS_PER_SPECIES (vérifié par assert en _build)
 const TREE_COUNT := 12           # = TREE_SPECIES_COUNT × TREE_VARIANTS_PER (variantes d'arbres, index 0..11)
-const V_ROCK_A := 12             # gros rocher anguleux
-const V_ROCK_B := 13             # caillou plus sombre
+const V_ROCK_A := 12             # gros rocher anguleux (commun, gris)
+const V_ROCK_B := 13             # caillou plus sombre (commun)
 const V_GRASS_GREEN := 14        # touffe verte
 const V_GRASS_DRY := 15          # touffe sèche (plage / faible humidité)
-const VARIANT_COUNT := 16
+# Rochers spéciaux (minerais / précieux) — AJOUTÉS EN FIN (indices 0..15 inchangés) :
+const V_ROCK_COPPER := 16        # rocher cuivré (patine verte) — minerai de cuivre
+const V_ROCK_GOLD := 17          # rocher aurifère (ocre doré, brillant) — or
+const V_ROCK_CRYSTAL := 18       # rocher cristallin (bleu glacé, anguleux, brillant) — gemmes précieuses
+const VARIANT_COUNT := 19
 
 const TREE_VARIANTS: Array[int] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
-const ROCK_VARIANTS: Array[int] = [V_ROCK_A, V_ROCK_B]
+const ROCK_VARIANTS: Array[int] = [V_ROCK_A, V_ROCK_B, V_ROCK_COPPER, V_ROCK_GOLD, V_ROCK_CRYSTAL]
+# Rochers « précieux » : matériau brillant (métal/gemme) au lieu du matériau de pierre mat.
+const PRECIOUS_VARIANTS: Array[int] = [V_ROCK_COPPER, V_ROCK_GOLD, V_ROCK_CRYSTAL]
 const GRASS_VARIANTS: Array[int] = [V_GRASS_GREEN, V_GRASS_DRY]
 const WIND_STRENGTH := 0.04            # amplitude du vent par défaut (0 = statique)
 
@@ -40,6 +46,9 @@ static func tree_variant(species: int, rng: RandomNumberGenerator) -> int:
 var _meshes: Array[Mesh] = []
 var _wind_mat: ShaderMaterial          # arbres + herbe : couleur de vertex + vent léger (double face)
 var _rock_mat: StandardMaterial3D      # rochers : statiques (1 face)
+var _copper_mat: StandardMaterial3D    # cuivre : semi-métallique, émission chaude de patine
+var _gold_mat: StandardMaterial3D      # or : très métallique, émission dorée
+var _crystal_mat: StandardMaterial3D   # cristal : brillant, émission bleue froide
 var _impostor_meshes: Array[Mesh] = [] # phase 24 : 1 impostor PAR espèce (silhouette/teinte propres au loin)
 var _impostor_mat: StandardMaterial3D  # impostor : NON éclairé, double face (très cheap, masqué par le fog)
 
@@ -51,6 +60,10 @@ func mesh_for(variant: int) -> Mesh:
 	return _meshes[variant]
 
 func material_for(variant: int) -> Material:
+	match variant:
+		V_ROCK_COPPER: return _copper_mat
+		V_ROCK_GOLD: return _gold_mat
+		V_ROCK_CRYSTAL: return _crystal_mat
 	return _rock_mat if variant in ROCK_VARIANTS else _wind_mat
 
 # Active/désactive le vent (wind_strength = 0 => végétation statique). Désactivable au besoin.
@@ -95,6 +108,30 @@ func _build() -> void:
 	_rock_mat = StandardMaterial3D.new()
 	_rock_mat.vertex_color_use_as_albedo = true
 	_rock_mat.roughness = 1.0
+	# Cuivre : semi-métallique (patine cuivrée), faible émission chaude.
+	_copper_mat = StandardMaterial3D.new()
+	_copper_mat.vertex_color_use_as_albedo = true
+	_copper_mat.metallic = 0.45
+	_copper_mat.roughness = 0.38
+	_copper_mat.emission_enabled = true
+	_copper_mat.emission = Color(0.35, 0.22, 0.08)
+	_copper_mat.emission_energy_multiplier = 0.25
+	# Or : très métallique, émission dorée chaude.
+	_gold_mat = StandardMaterial3D.new()
+	_gold_mat.vertex_color_use_as_albedo = true
+	_gold_mat.metallic = 0.78
+	_gold_mat.roughness = 0.15
+	_gold_mat.emission_enabled = true
+	_gold_mat.emission = Color(0.60, 0.45, 0.10)
+	_gold_mat.emission_energy_multiplier = 0.4
+	# Cristal : brillant glacé, forte émission bleue froide.
+	_crystal_mat = StandardMaterial3D.new()
+	_crystal_mat.vertex_color_use_as_albedo = true
+	_crystal_mat.metallic = 0.25
+	_crystal_mat.roughness = 0.08
+	_crystal_mat.emission_enabled = true
+	_crystal_mat.emission = Color(0.30, 0.55, 0.75)
+	_crystal_mat.emission_energy_multiplier = 0.55
 	# Arbres + herbe : shader de vent (couleur de vertex, double face, lambert mobile).
 	_wind_mat = ShaderMaterial.new()
 	_wind_mat.shader = load("res://shaders/vegetation_wind.gdshader")
@@ -111,6 +148,10 @@ func _build() -> void:
 	# Props paramétriques (inchangés) : rochers + herbe.
 	_meshes[V_ROCK_A] = _make_rock(Color(0.44, 0.41, 0.37), 101, 1)
 	_meshes[V_ROCK_B] = _make_rock(Color(0.33, 0.29, 0.27), 257, 0)
+	# Rochers spéciaux : formes ET couleurs distinctes ; veines de minerai + cristal en amas de prismes.
+	_meshes[V_ROCK_COPPER] = _make_rock(Color(0.32, 0.48, 0.36), 311, 1, Color(0.78, 0.50, 0.28), 2.8)   # patine verte + veines cuivrées
+	_meshes[V_ROCK_GOLD] = _make_rock(Color(0.52, 0.44, 0.22), 733, 1, Color(0.95, 0.82, 0.30), 3.2)     # ocre sombre + veines dorées brillantes
+	_meshes[V_ROCK_CRYSTAL] = _make_crystal(Color(0.50, 0.72, 0.88), 911)   # amas de prismes bleu glacé (gemmes)
 	_meshes[V_GRASS_GREEN] = _make_grass(Color(0.30, 0.47, 0.19), 11)
 	_meshes[V_GRASS_DRY] = _make_grass(Color(0.56, 0.52, 0.29), 22)
 
@@ -146,7 +187,8 @@ func _make_tree(canopy_color: Color, conifer: bool) -> ArrayMesh:
 
 # Rocher : icosphère déformée par bruit, légèrement aplatie. Faces plates (non indexé).
 # Base ~ y = 0 (posé sur le sol). subdiv 0 = 20 tris (anguleux), 1 = 80 tris.
-func _make_rock(base_color: Color, noise_seed: int, subdiv: int) -> ArrayMesh:
+# vein_color + vein_freq > 0 : stries de minerai visibles sur certaines faces (Perlin secondaire).
+func _make_rock(base_color: Color, noise_seed: int, subdiv: int, vein_color: Color = Color.BLACK, vein_freq: float = 0.0) -> ArrayMesh:
 	var ico := PlanetGenerator._build_icosphere(subdiv)
 	var verts: PackedVector3Array = ico.verts
 	var idx: PackedInt32Array = ico.indices
@@ -154,6 +196,13 @@ func _make_rock(base_color: Color, noise_seed: int, subdiv: int) -> ArrayMesh:
 	n.noise_type = FastNoiseLite.TYPE_PERLIN
 	n.seed = noise_seed
 	n.frequency = 1.4
+	# Bruit secondaire pour veines de minerai (optionnel : vein_freq > 0).
+	var has_veins := vein_freq > 0.0
+	var vn := FastNoiseLite.new()
+	if has_veins:
+		vn.noise_type = FastNoiseLite.TYPE_PERLIN
+		vn.seed = noise_seed + 999
+		vn.frequency = vein_freq
 	var dpos := PackedVector3Array()
 	dpos.resize(verts.size())
 	for i in verts.size():
@@ -167,13 +216,60 @@ func _make_rock(base_color: Color, noise_seed: int, subdiv: int) -> ArrayMesh:
 		var p1 := dpos[idx[k + 1]]
 		var p2 := dpos[idx[k + 2]]
 		var shade := clampf(((p0.y + p1.y + p2.y) / 3.0) * 0.5, -0.1, 0.2)
-		_tri(st, base_color.lightened(maxf(shade, 0.0)).darkened(maxf(-shade, 0.0)), p0, p1, p2)
+		var face_col := base_color.lightened(maxf(shade, 0.0)).darkened(maxf(-shade, 0.0))
+		if has_veins:
+			var center := (p0 + p1 + p2) / 3.0
+			var vv := vn.get_noise_3dv(center * 5.0)
+			if vv > 0.15:
+				face_col = face_col.lerp(vein_color, clampf((vv - 0.15) * 2.5, 0.0, 0.85))
+		_tri(st, face_col, p0, p1, p2)
 	st.generate_normals()
 	return st.commit()
 
-# Herbe : 2 quads verticaux croisés, dégradé bas->haut. Matériau double face.
+# Cristal : amas de prismes hexagonaux à angles variés (look « géode »). Faces plates, vertex-colored,
+# dégradé base(sombre) → pointe(clair/brillant). Mesh DISTINCT des rochers (pas une icosphère).
+func _make_crystal(base_color: Color, noise_seed: int) -> ArrayMesh:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = noise_seed
+	var count := rng.randi_range(5, 7)
+	for i in count:
+		var h := rng.randf_range(0.35, 0.95)
+		var r := rng.randf_range(0.06, 0.15)
+		var tilt_x := rng.randf_range(-0.40, 0.40)
+		var tilt_z := rng.randf_range(-0.40, 0.40)
+		var base_off := Vector3(rng.randf_range(-0.18, 0.18), 0.0, rng.randf_range(-0.18, 0.18))
+		var c_dark := base_color.darkened(rng.randf_range(0.08, 0.28))
+		var c_bright := base_color.lightened(rng.randf_range(0.08, 0.30))
+		_hexprism(st, base_off, Vector3(tilt_x, 1.0, tilt_z).normalized(), h, r, c_dark, c_bright, rng.randf() * TAU)
+	st.generate_normals()
+	return st.commit()
+
+# Prisme hexagonal avec pointe effilée : faces latérales + capuchon conique. Utilisé par _make_crystal.
+func _hexprism(st: SurfaceTool, base: Vector3, up_dir: Vector3, height: float, radius: float, c_base: Color, c_tip: Color, twist: float) -> void:
+	var sides := 6
+	var right := up_dir.cross(Vector3.UP if absf(up_dir.dot(Vector3.UP)) < 0.99 else Vector3.RIGHT).normalized()
+	var fwd := right.cross(up_dir).normalized()
+	var top := base + up_dir * height
+	var tip := base + up_dir * (height * 1.18)
+	for s in sides:
+		var a0 := twist + TAU * s / sides
+		var a1 := twist + TAU * (s + 1) / sides
+		var d0 := right * cos(a0) + fwd * sin(a0)
+		var d1 := right * cos(a1) + fwd * sin(a1)
+		var b0 := base + d0 * radius
+		var b1 := base + d1 * radius
+		var t0 := top + d0 * radius * 0.65
+		var t1 := top + d1 * radius * 0.65
+		_tri(st, c_base, b0, t0, b1)
+		_tri(st, c_base.lerp(c_tip, 0.5), b1, t0, t1)
+		_tri(st, c_tip, t0, tip, t1)
+		_tri(st, c_base, base, b1, b0)
+
+# Herbe : touffe de brins effilés courbés, dégradé bas->haut. Matériau double face (oscillation par le vent).
 func _make_grass(color: Color, seed_val: int) -> ArrayMesh:
-	# Touffe PROCÉDURALE : 6 brins fins effilés, courbés, orientés au hasard (seedé => déterministe).
+	# Touffe PROCÉDURALE : 3 brins fins effilés, courbés, orientés au hasard (seedé => déterministe).
 	# Dégradé sombre (base) -> couleur (pointe). Bas-poly ; double face + oscillation via le matériau de vent.
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)

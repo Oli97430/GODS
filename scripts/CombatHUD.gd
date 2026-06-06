@@ -92,6 +92,15 @@ func _draw() -> void:
 		var wy := vp.y * 0.26
 		draw_string(_font, Vector2(wx + 2, wy + 2), wtxt, HORIZONTAL_ALIGNMENT_LEFT, -1, 44, Color(0, 0, 0, 0.5 * a))
 		draw_string(_font, Vector2(wx, wy), wtxt, HORIZONTAL_ALIGNMENT_LEFT, -1, 44, Color(1.0, 0.55, 0.2, a))
+	# --- Prompt « mode Drone ? » (sortie d'arme : on demande avant de lancer les vagues) ---
+	if GameState.drone_mode_prompt:
+		var q := "MODE DRONE ?"
+		var qs := _font.get_string_size(q, HORIZONTAL_ALIGNMENT_LEFT, -1, 44)
+		draw_string(_font, Vector2((vp.x - qs.x) * 0.5 + 2, vp.y * 0.34 + 2), q, HORIZONTAL_ALIGNMENT_LEFT, -1, 44, Color(0, 0, 0, 0.5))
+		draw_string(_font, Vector2((vp.x - qs.x) * 0.5, vp.y * 0.34), q, HORIZONTAL_ALIGNMENT_LEFT, -1, 44, Color(1.0, 0.55, 0.2))
+		var hh := "[Entrée] Oui      ·      [Retour arr.] Non"
+		var hsz := _font.get_string_size(hh, HORIZONTAL_ALIGNMENT_LEFT, -1, 24)
+		draw_string(_font, Vector2((vp.x - hsz.x) * 0.5, vp.y * 0.34 + 42.0), hh, HORIZONTAL_ALIGNMENT_LEFT, -1, 24, Color(1, 1, 1, 0.92))
 	# --- Bandeau de mort ---
 	if GameState.combat_dead:
 		var t1 := "ÉLIMINÉ"

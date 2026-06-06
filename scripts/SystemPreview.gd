@@ -29,6 +29,10 @@ func set_system(star_color: Color, planets: Array) -> void:
 	queue_redraw()
 
 func _process(delta: float) -> void:
+	# Rien à animer tant qu'aucun système n'est sélectionné ou que l'aperçu n'est pas affiché
+	# (évite de reconstruire la liste de commandes 2D à 90 Hz derrière le fondu de l'écran de départ).
+	if _planets.is_empty() or not is_visible_in_tree():
+		return
 	_t += delta
 	queue_redraw()
 

@@ -70,6 +70,10 @@ func _ready() -> void:
 	add_child(_light)
 
 func _process(delta: float) -> void:
+	# Sortie de surface / fin de combat : on retire le bolt en vol (parenté à current_scene, non nettoyé par WaveManager).
+	if not GameState.combat_active or GameState.current_scale != GameState.Scale.SURFACE:
+		queue_free()
+		return
 	_travelled += _speed * delta
 	if _travelled >= _dist:
 		_impact()

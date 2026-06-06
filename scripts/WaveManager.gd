@@ -46,7 +46,8 @@ func _process(delta: float) -> void:
 		if _active:
 			_clear()
 		return
-	var weapon_out: bool = _player != null and _player.has_method("is_armed") and _player.is_armed()
+	# « Mode Drone » opt-in : les vagues ne démarrent QUE si le joueur a accepté le prompt (cf. PlayerController).
+	var weapon_out: bool = _player != null and _player.has_method("is_armed") and _player.is_armed() and GameState.drone_mode_on
 	# En surface mais arme rangée : on TOLÈRE un bref désarmement (le temps d'un changement d'arme) via une grâce —
 	# la session ne se réinitialise QUE si l'arme reste rangée au-delà de ARM_GRACE (= vrai dégainage).
 	if not weapon_out:

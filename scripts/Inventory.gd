@@ -24,6 +24,10 @@ var missiles := 0         # munitions missile EN STOCK (consommées au tir)
 var heals := 0            # soins EN STOCK (consommables — bouton « utiliser », CP-INV2)
 var total := 0            # total de loots collectés (stat de progression)
 
+# Ressources de RÉCOLTE (cueillette/abattage/minage) : dict générique id(String) -> quantité(int), persistant.
+# Source de vérité unique pour l'inventaire de ressources (fruits, graines, feuilles, bois, pierre, minerais…).
+var resources := {}
+
 func _ready() -> void:
 	load_inv()
 
@@ -48,6 +52,36 @@ func collect(kind: int) -> void:
 		4: missiles = mini(missiles + 2, MISSILE_CAP)
 	save_inv()
 	changed.emit()
+
+# --- Ressources de récolte (générique) ---
+
+## Ajoute (ou retire si n<0) `n` unités de la ressource `id`. Sauvegarde + signal.
+func add_resource(id: String, n: int = 1) -> void:
+	if id == "" or n == 0:
+		return
+	var v := maxi(0, int(resources.get(id, 0)) + n)
+	if v == 0:
+		resources.erase(id)
+	else:
+		resources[id] = v
+	save_inv()
+	changed.emit()
+
+## Consomme `n` unités si disponibles ; retourne true si consommé.
+func consume_resource(id: String, n: int = 1) -> bool:
+	if int(resources.get(id, 0)) < n:
+		return false
+	add_resource(id, -n)
+	return true
+
+func resource_count(id: String) -> int:
+	return int(resources.get(id, 0))
+
+func resource_total() -> int:
+	var s := 0
+	for k in resources:
+		s += int(resources[k])
+	return s
 
 func use_heal() -> bool:
 	if heals <= 0:
@@ -74,6 +108,7 @@ func reset_all() -> void:
 	missiles = 0
 	heals = 0
 	total = 0
+	resources.clear()
 	save_inv()
 	changed.emit()
 
@@ -87,6 +122,8 @@ func load_inv() -> void:
 	missiles = int(c.get_value("inv", "missiles", 0))
 	heals = int(c.get_value("inv", "heals", 0))
 	total = int(c.get_value("inv", "total", 0))
+	var r = c.get_value("resources", "items", {})   # Variant : pas de `:=`
+	resources = r if typeof(r) == TYPE_DICTIONARY else {}
 
 func save_inv() -> void:
 	var c := ConfigFile.new()
@@ -96,4 +133,5 @@ func save_inv() -> void:
 	c.set_value("inv", "missiles", missiles)
 	c.set_value("inv", "heals", heals)
 	c.set_value("inv", "total", total)
+	c.set_value("resources", "items", resources)
 	c.save(PATH)

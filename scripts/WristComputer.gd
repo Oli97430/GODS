@@ -65,6 +65,7 @@ var _lamp_button: Button   # lampe nocturne du joueur (univers sous-marin / nuit
 var _weapon_button: Button   # revolver du joueur (mode combat opt-in)
 var _plasma_button: Button   # fusil à plasma du joueur
 var _grenade_button: Button  # lance-grenades du joueur
+var _res_label: Label        # inventaire de récolte (résumé par catégorie)
 var _coop_label: Label       # coop (CP4) : statut réseau
 var _coop_host_btn: Button
 var _coop_join_btn: Button
@@ -111,107 +112,120 @@ func _build_ui() -> void:
 	margin.add_theme_constant_override("margin_bottom", 16)
 	root.add_child(margin)
 
+	# Refonte UI/UX : l'écran est ÉTROIT et HAUT (300×580). Une pile unique débordait (la coop
+	# passait hors écran). On range les contrôles par thème dans un TabContainer, et on garde le
+	# bouton contextuel TOUJOURS visible sous les onglets.
 	var vbox := VBoxContainer.new()
-	vbox.add_theme_constant_override("separation", 10)
+	vbox.set_anchors_preset(Control.PRESET_FULL_RECT)
+	vbox.add_theme_constant_override("separation", 6)
 	margin.add_child(vbox)
 
-	_add_label(vbox, "ORDINATEUR", 26, Color(0.60, 0.85, 1.0))
-	_scale_label = _add_label(vbox, "—", 20, Color.WHITE)
-	_planet_label = _add_label(vbox, "—", 18, Color(0.85, 0.90, 1.0))
-	_coords_label = _add_label(vbox, "—", 16, Color(0.80, 0.85, 0.90))
-	_seed_label = _add_label(vbox, "—", 14, Color(0.60, 0.70, 0.80))
-	_time_label = _add_label(vbox, "—", 16, Color(1.0, 0.85, 0.55))   # heure + vitesse (phase 12)
-	_weather_label = _add_label(vbox, "—", 15, Color(0.70, 0.82, 0.95))   # météo (phase 13)
-	_combat_label = _add_label(vbox, "", 16, Color(1.0, 0.62, 0.55))      # combat (phase 26 CP3)
+	_add_label(vbox, "ORDINATEUR", 18, Color(0.60, 0.85, 1.0))
 
-	var spacer := Control.new()
-	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	vbox.add_child(spacer)
+	var tabs := TabContainer.new()
+	tabs.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	tabs.add_theme_font_size_override("font_size", 15)   # libellés d'onglets lisibles sur écran étroit
+	tabs.tab_alignment = TabBar.ALIGNMENT_CENTER
+	var tab_sb := StyleBoxFlat.new()
+	tab_sb.bg_color = Color(0.03, 0.05, 0.10, 0.6)
+	tab_sb.set_corner_radius_all(8)
+	tabs.add_theme_stylebox_override("panel", tab_sb)
+	vbox.add_child(tabs)
 
-	# Contrôle du temps (phase 12) : poke-routé comme tout Button du SubViewport.
+	# --- Onglet SONDE : lectures (échelle / planète / coords / seed / heure / météo / combat) ---
+	var t_probe := _make_tab(tabs, "Sonde")
+	_scale_label = _add_label(t_probe, "—", 20, Color.WHITE)
+	_planet_label = _add_label(t_probe, "—", 18, Color(0.85, 0.90, 1.0))
+	_coords_label = _add_label(t_probe, "—", 16, Color(0.80, 0.85, 0.90))
+	_seed_label = _add_label(t_probe, "—", 14, Color(0.60, 0.70, 0.80))
+	_time_label = _add_label(t_probe, "—", 16, Color(1.0, 0.85, 0.55))   # heure + vitesse (phase 12)
+	_weather_label = _add_label(t_probe, "—", 15, Color(0.70, 0.82, 0.95))   # météo (phase 13)
+	_combat_label = _add_label(t_probe, "", 16, Color(1.0, 0.62, 0.55))      # combat (phase 26 CP3)
+
+	# --- Onglet TEMPS : vitesse du temps / saut de phase / forçage météo + lampe ---
+	var t_time := _make_tab(tabs, "Temps")
 	var ctrl_row := HBoxContainer.new()
 	ctrl_row.add_theme_constant_override("separation", 8)
-	vbox.add_child(ctrl_row)
-	_speed_button = Button.new()
-	_speed_button.add_theme_font_size_override("font_size", 16)
-	_speed_button.custom_minimum_size = Vector2(0, 46)
-	_speed_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_speed_button.pressed.connect(_on_speed)
+	t_time.add_child(ctrl_row)
+	_speed_button = _mk_tool_button("", _on_speed, 16, 48)
 	ctrl_row.add_child(_speed_button)
-	_skip_button = Button.new()
-	_skip_button.add_theme_font_size_override("font_size", 16)
-	_skip_button.custom_minimum_size = Vector2(0, 46)
-	_skip_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_skip_button.pressed.connect(_on_skip)
+	_skip_button = _mk_tool_button("", _on_skip, 16, 48)
 	ctrl_row.add_child(_skip_button)
-	# Bouton de forçage météo (phase 13) : Auto -> Couvert -> Pluie -> Orage.
-	_weather_button = Button.new()
-	_weather_button.add_theme_font_size_override("font_size", 16)
-	_weather_button.custom_minimum_size = Vector2(0, 46)
-	_weather_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_weather_button.pressed.connect(_on_weather)
+	_weather_button = _mk_tool_button("", _on_weather, 16, 48)
 	ctrl_row.add_child(_weather_button)
 	_refresh_time_buttons()
+	_lamp_button = _mk_tool_button("Lampe OFF", _on_lamp, 18, 50)
+	t_time.add_child(_lamp_button)
 
-	# Lampe nocturne : bascule la lampe du joueur (spot main droite / caméra). Le texte reflète l'état.
-	_lamp_button = Button.new()
-	_lamp_button.text = "Lampe OFF"
-	_lamp_button.add_theme_font_size_override("font_size", 18)
-	_lamp_button.custom_minimum_size = Vector2(0, 48)
-	_lamp_button.pressed.connect(_on_lamp)
-	vbox.add_child(_lamp_button)
+	# --- Onglet SAC : inventaire de récolte + outil + Manger / Décomposer en graines (au choix) ---
+	var t_bag := _make_tab(tabs, "Sac")
+	_res_label = _add_label(t_bag, "Sac : vide", 15, Color(0.75, 0.92, 0.70))
+	_res_label.custom_minimum_size = Vector2(0, 64)   # réserve de la place : le sac peut lister plusieurs catégories
+	var tool_btn := _mk_tool_button("Outil (hache / pioche)", _on_tool, 16, 52)
+	t_bag.add_child(tool_btn)
+	var food_row := HBoxContainer.new()
+	food_row.add_theme_constant_override("separation", 6)
+	t_bag.add_child(food_row)
+	var eat_btn := _mk_tool_button("Manger", _on_eat, 16, 50)
+	food_row.add_child(eat_btn)
+	var seed_btn := _mk_tool_button("→ Graines", _on_decompose, 16, 50)
+	food_row.add_child(seed_btn)
+	# Fonderie (CP4) : transformer les minerais en lingots.
+	_add_label(t_bag, "— Fonderie (2 minerais → lingot) —", 12, Color(0.75, 0.62, 0.50))
+	var smelt_row := HBoxContainer.new()
+	smelt_row.add_theme_constant_override("separation", 4)
+	t_bag.add_child(smelt_row)
+	smelt_row.add_child(_mk_tool_button("Fer", _on_smelt_iron, 13, 38))
+	smelt_row.add_child(_mk_tool_button("Cuivre", _on_smelt_copper, 13, 38))
+	smelt_row.add_child(_mk_tool_button("Or", _on_smelt_gold, 13, 38))
+	# Construction (CP4) : placer des pièces dans le monde.
+	_add_label(t_bag, "— Construction —", 12, Color(0.70, 0.62, 0.48))
+	var craft_r1 := HBoxContainer.new()
+	craft_r1.add_theme_constant_override("separation", 4)
+	t_bag.add_child(craft_r1)
+	craft_r1.add_child(_mk_tool_button("Planche", _on_craft_plank, 13, 38))
+	craft_r1.add_child(_mk_tool_button("Mur", _on_craft_wall, 13, 38))
+	craft_r1.add_child(_mk_tool_button("Toit", _on_craft_roof, 13, 38))
+	var craft_r2 := HBoxContainer.new()
+	craft_r2.add_theme_constant_override("separation", 4)
+	t_bag.add_child(craft_r2)
+	craft_r2.add_child(_mk_tool_button("Pilier", _on_craft_pillar, 13, 38))
+	craft_r2.add_child(_mk_tool_button("Porte", _on_craft_door, 13, 38))
+	craft_r2.add_child(_mk_tool_button("Lanterne", _on_craft_lamp, 13, 38))
+	# Jardinage (CP4) : replanter des graines → arbres.
+	_add_label(t_bag, "— Jardinage —", 12, Color(0.55, 0.72, 0.48))
+	t_bag.add_child(_mk_tool_button("Planter une graine", _on_plant, 13, 38))
 
-	# Armes (mode combat opt-in) : revolver / plasma / grenade CÔTE À CÔTE (ré-appui sur l'arme active = dégainer).
-	var weapon_row := HBoxContainer.new()
-	weapon_row.add_theme_constant_override("separation", 6)
-	vbox.add_child(weapon_row)
-	_weapon_button = Button.new()
-	_weapon_button.text = "Revolver"
-	_weapon_button.add_theme_font_size_override("font_size", 15)
-	_weapon_button.custom_minimum_size = Vector2(0, 50)
-	_weapon_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_weapon_button.clip_text = true
-	_weapon_button.pressed.connect(_on_weapon)
-	weapon_row.add_child(_weapon_button)
-	_plasma_button = Button.new()
-	_plasma_button.text = "Plasma"
-	_plasma_button.add_theme_font_size_override("font_size", 15)
-	_plasma_button.custom_minimum_size = Vector2(0, 50)
-	_plasma_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_plasma_button.clip_text = true
-	_plasma_button.pressed.connect(_on_plasma)
-	weapon_row.add_child(_plasma_button)
-	_grenade_button = Button.new()
-	_grenade_button.text = "Grenade"
-	_grenade_button.add_theme_font_size_override("font_size", 15)
-	_grenade_button.custom_minimum_size = Vector2(0, 50)
-	_grenade_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_grenade_button.clip_text = true
-	_grenade_button.pressed.connect(_on_grenade)
-	weapon_row.add_child(_grenade_button)
-
-	# COOP (CP4) : statut + héberger / rejoindre (IP = Settings.coop_ip, réglée au bureau) / quitter.
-	_coop_label = _add_label(vbox, "Coop : hors-ligne", 14, Color(0.62, 0.80, 1.0))
+	# --- Onglet COOP : multijoueur + changement de système + armes (combat opt-in) ---
+	var t_coop := _make_tab(tabs, "Coop")
+	_coop_label = _add_label(t_coop, "Coop : hors-ligne", 15, Color(0.62, 0.80, 1.0))
 	var coop_row := HBoxContainer.new()
 	coop_row.add_theme_constant_override("separation", 6)
-	vbox.add_child(coop_row)
+	t_coop.add_child(coop_row)
 	_coop_host_btn = _mk_coop_button("Héberger", _on_coop_host)
 	coop_row.add_child(_coop_host_btn)
 	_coop_join_btn = _mk_coop_button("Rejoindre", _on_coop_join)
 	coop_row.add_child(_coop_join_btn)
 	_coop_leave_btn = _mk_coop_button("Quitter", _on_coop_leave)
 	coop_row.add_child(_coop_leave_btn)
+	var sys_btn := _mk_tool_button("↩ Changer de système", _on_change_system, 16, 50)
+	t_coop.add_child(sys_btn)
+	_add_label(t_coop, "— Armes (combat) —", 13, Color(0.85, 0.62, 0.55))
+	var weapon_row := HBoxContainer.new()
+	weapon_row.add_theme_constant_override("separation", 6)
+	t_coop.add_child(weapon_row)
+	_weapon_button = _mk_coop_button("Revolver", _on_weapon)
+	weapon_row.add_child(_weapon_button)
+	_plasma_button = _mk_coop_button("Plasma", _on_plasma)
+	weapon_row.add_child(_plasma_button)
+	_grenade_button = _mk_coop_button("Grenade", _on_grenade)
+	weapon_row.add_child(_grenade_button)
 
-	# Changer de système : rouvre l'écran de départ depuis n'importe quelle échelle (vol / orbite / sol).
-	var sys_btn := _mk_coop_button("↩ Changer de système", _on_change_system)
-	sys_btn.add_theme_font_size_override("font_size", 17)
-	sys_btn.custom_minimum_size = Vector2(0, 50)
-	vbox.add_child(sys_btn)
-
+	# Bouton contextuel TOUJOURS visible sous les onglets (remonter d'échelle / atterrir...).
 	_action_button = Button.new()
 	_action_button.text = "—"
 	_action_button.add_theme_font_size_override("font_size", 20)
-	_action_button.custom_minimum_size = Vector2(0, 56)
+	_action_button.custom_minimum_size = Vector2(0, 52)
 	_action_button.disabled = true
 	_action_button.pressed.connect(_on_action_btn)
 	vbox.add_child(_action_button)
@@ -444,6 +458,8 @@ func _update_content() -> void:
 				_combat_label.text = "⚔ PV %d/%d  V%d  Score %d" % [int(round(GameState.combat_hp)), int(round(GameState.combat_hp_max)), GameState.combat_wave, GameState.combat_score]
 		else:
 			_combat_label.text = ""
+	if _res_label:
+		_res_label.text = _res_summary()
 	_update_coop()
 
 # --- Coop (CP4) : statut + héberger/rejoindre/quitter à la montre (IP réglée au bureau via Settings.coop_ip) ---
@@ -456,6 +472,31 @@ func _mk_coop_button(txt: String, cb: Callable) -> Button:
 	b.clip_text = true
 	b.pressed.connect(cb)
 	return b
+
+# Bouton pleine largeur pour les onglets (libellé + callback + taille). clip_text : pas de débordement.
+func _mk_tool_button(txt: String, cb: Callable, font_size: int, height: int) -> Button:
+	var b := Button.new()
+	b.text = txt
+	b.add_theme_font_size_override("font_size", font_size)
+	b.custom_minimum_size = Vector2(0, height)
+	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	b.clip_text = true
+	b.pressed.connect(cb)
+	return b
+
+# Crée un onglet (marge + VBox) dans le TabContainer ; le NOM du conteneur = libellé de l'onglet.
+func _make_tab(tabs: TabContainer, title: String) -> VBoxContainer:
+	var mc := MarginContainer.new()
+	mc.name = title
+	mc.add_theme_constant_override("margin_left", 8)
+	mc.add_theme_constant_override("margin_right", 8)
+	mc.add_theme_constant_override("margin_top", 12)
+	mc.add_theme_constant_override("margin_bottom", 8)
+	tabs.add_child(mc)
+	var vb := VBoxContainer.new()
+	vb.add_theme_constant_override("separation", 10)
+	mc.add_child(vb)
+	return vb
 
 func _update_coop() -> void:
 	if _coop_label == null:
@@ -620,6 +661,148 @@ func _on_grenade() -> void:
 	if p != null and p.has_method("toggle_grenade"):
 		p.toggle_grenade()
 	_refresh_weapon_buttons()
+
+# Outil de récolte UNIQUE (hache+pioche) — équipe / range (exclusif avec les armes côté PlayerController).
+func _on_tool() -> void:
+	ui_confirm.emit()
+	var p = _player_ref()
+	if p != null and p.has_method("toggle_tool"):
+		p.toggle_tool()
+
+# Résumé compact de l'inventaire de récolte, par catégorie (affiché sur la montre).
+func _res_summary() -> String:
+	var by_kind := {}
+	for id in Inventory.resources:
+		var k := HarvestLibrary.item_kind(id)
+		by_kind[k] = int(by_kind.get(k, 0)) + int(Inventory.resources[id])
+	if by_kind.is_empty():
+		return "Sac : vide"
+	var names := {"fruit": "Fruits", "seed": "Graines", "leaf": "Feuilles", "wood": "Bois", "stone": "Pierre", "ore": "Minerai", "gem": "Gemmes", "metal": "Lingots", "build": "Constr."}
+	var parts: Array = []
+	for k in HarvestLibrary.KIND_ORDER:
+		if by_kind.has(k):
+			parts.append("%s %d" % [String(names.get(k, k)), int(by_kind[k])])
+	return "Sac : " + "  ·  ".join(parts)
+
+# Manger : consomme le fruit comestible le plus nourrissant en stock => soin du joueur.
+func _on_eat() -> void:
+	ui_confirm.emit()
+	var best := ""
+	var best_heal := 0.0
+	for id in Inventory.resources:
+		var h := HarvestLibrary.item_heal(id)
+		if h > best_heal:
+			best_heal = h
+			best = id
+	if best == "" or best_heal <= 0.0:
+		return
+	if Inventory.consume_resource(best, 1):
+		var p = _player_ref()
+		if p != null and p.has_method("heal"):
+			p.heal(best_heal)
+
+# Décomposer : transforme un fruit en stock en SA graine (alternative à Manger — au choix du joueur).
+func _on_decompose() -> void:
+	ui_confirm.emit()
+	var fruit := ""
+	for id in Inventory.resources:
+		if HarvestLibrary.item_kind(id) == HarvestLibrary.KIND_FRUIT and int(Inventory.resources[id]) > 0:
+			fruit = id
+			break
+	if fruit == "":
+		return
+	var seed_id := HarvestLibrary.seed_for_fruit(fruit)
+	if seed_id == "":
+		return
+	if Inventory.consume_resource(fruit, 1):
+		Inventory.add_resource(seed_id, 1)
+
+# --- Fonderie : transformer les minerais bruts en lingots ---
+func _on_smelt_iron() -> void:
+	ui_confirm.emit()
+	_craft_single("ore_iron", 2, "ingot_iron")
+
+func _on_smelt_copper() -> void:
+	ui_confirm.emit()
+	_craft_single("ore_copper", 2, "ingot_copper")
+
+func _on_smelt_gold() -> void:
+	ui_confirm.emit()
+	_craft_single("ore_gold", 2, "ingot_gold")
+
+# --- Construction : fabriquer + entrer en mode construction ---
+func _on_craft_plank() -> void:
+	ui_confirm.emit()
+	_craft_consume(HarvestLibrary.KIND_WOOD, 3, "plank")
+	_enter_build("plank")
+
+func _on_craft_wall() -> void:
+	ui_confirm.emit()
+	_craft_consume(HarvestLibrary.KIND_STONE, 5, "wall_stone")
+	_enter_build("wall_stone")
+
+func _on_craft_roof() -> void:
+	ui_confirm.emit()
+	_craft_consume(HarvestLibrary.KIND_LEAF, 4, "roof_thatch")
+	_enter_build("roof_thatch")
+
+func _on_craft_pillar() -> void:
+	ui_confirm.emit()
+	_craft_single("ingot_iron", 3, "pillar_iron")
+	_enter_build("pillar_iron")
+
+func _on_craft_door() -> void:
+	ui_confirm.emit()
+	_craft_single("ingot_copper", 2, "door_copper")
+	_enter_build("door_copper")
+
+func _on_craft_lamp() -> void:
+	ui_confirm.emit()
+	_craft_single("ingot_gold", 1, "lamp_gold")
+	_enter_build("lamp_gold")
+
+# --- Jardinage : replanter une graine ---
+func _on_plant() -> void:
+	ui_confirm.emit()
+	var seed_id := ""
+	for id in Inventory.resources:
+		if HarvestLibrary.item_kind(id) == HarvestLibrary.KIND_SEED and int(Inventory.resources[id]) > 0:
+			seed_id = id
+			break
+	if seed_id == "":
+		return
+	if _surface_view != null and _surface_view.has_method("start_plant"):
+		_surface_view.start_plant(seed_id)
+
+# Entre en mode construction si on a du stock de l'item demandé.
+func _enter_build(item: String) -> void:
+	if Inventory.resource_count(item) > 0 and _surface_view != null and _surface_view.has_method("start_build"):
+		_surface_view.start_build(item)
+
+# Consomme `n` d'un item SPÉCIFIQUE (id exact), produit 1 `output`. Pas assez → skip.
+func _craft_single(item_id: String, n: int, output: String) -> void:
+	if Inventory.resource_count(item_id) >= n:
+		Inventory.consume_resource(item_id, n)
+		Inventory.add_resource(output, 1)
+
+# Consomme `n` unités de n'importe quel item de la catégorie `kind`, puis ajoute 1 `output`. Pas assez → skip.
+func _craft_consume(kind: String, n: int, output: String) -> void:
+	var total := 0
+	for id in Inventory.resources:
+		if HarvestLibrary.item_kind(id) == kind:
+			total += int(Inventory.resources[id])
+	if total < n:
+		return
+	var left := n
+	for id in Inventory.resources.keys():
+		if left <= 0:
+			break
+		if HarvestLibrary.item_kind(id) == kind:
+			var have := int(Inventory.resources[id])
+			var take := mini(have, left)
+			Inventory.consume_resource(id, take)
+			left -= take
+	Inventory.add_resource(output, 1)
 
 # Surligne (modulate vert) le bouton de l'arme active ; les autres restent blancs.
 func _refresh_weapon_buttons() -> void:

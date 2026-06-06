@@ -96,6 +96,10 @@ func _ready() -> void:
 func _process(delta: float) -> void:
 	if GameState.options_open:
 		return
+	# Sortie de surface / fin de combat : on retire le missile en vol (parenté à current_scene, non nettoyé par WaveManager).
+	if not GameState.combat_active or GameState.current_scale != GameState.Scale.SURFACE:
+		queue_free()
+		return
 	_life -= delta
 	if is_instance_valid(_target):
 		var to := (_target as Node3D).global_position - global_position

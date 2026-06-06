@@ -78,7 +78,8 @@ var _g_z := 0.0
 var _g_y := 0.0
 
 # Nodes assemblés.
-var _body: MeshInstance3D
+const TORTUE_MODEL := "res://models/tortue.glb"   # remplace l'assemblage procédural (les mobs = tortues)
+var _body: Node3D
 var _head: MeshInstance3D
 var _legs: Array[MeshInstance3D] = []
 
@@ -112,23 +113,35 @@ func setup(sp: Dictionary, parts: Dictionary, mat: Material, player: Node3D, gro
 	set_process(true)
 
 func _build_nodes(mat: Material) -> void:
-	_body = MeshInstance3D.new()
-	_body.mesh = _parts.body
-	_body.material_override = mat
+	# Visuel = modèle TORTUE (GLB), un seul node auto-échelle, à la place de l'assemblage corps/tête/pattes.
+	# L'IA/déplacement reste identique ; pas de pattes animées (léger bob conservé). _head/_legs restent vides.
+	_body = Node3D.new()
 	_body.position = Vector3(0.0, _stand, 0.0)
 	add_child(_body)
-	_head = MeshInstance3D.new()
-	_head.mesh = _parts.head
-	_head.material_override = mat
-	_head.position = _parts.head_anchor
-	_body.add_child(_head)
-	for a in _parts.leg_anchors:
-		var leg := MeshInstance3D.new()
-		leg.mesh = _parts.leg
-		leg.material_override = mat
-		leg.position = a
-		_body.add_child(leg)
-		_legs.append(leg)
+	var res = load(TORTUE_MODEL)
+	var inst: Node3D = null
+	if res is PackedScene:
+		inst = (res as PackedScene).instantiate()
+	if inst != null:
+		_body.add_child(inst)
+		inst.rotation.y = PI   # le modèle tortue regarde +Z ; le sens de marche est -Z => demi-tour (sinon recule)
+		CombatUtil.disable_shadows(inst)
+		var r := CombatUtil.scene_aabb(inst, Transform3D.IDENTITY)
+		var target := maxf(_stand * 1.8, 0.7)   # envergure cible ∝ stature de l'espèce
+		if r.has and (r.box as AABB).size.length() > 0.0001:
+			var ab: AABB = r.box
+			var longest: float = maxf(maxf(ab.size.x, ab.size.y), ab.size.z)
+			var sc: float = target / maxf(longest, 0.0001)
+			# centre le modèle + pose-le AU SOL (le corps est à y=_stand, on redescend la tortue d'autant).
+			inst.position = (-ab.get_center() * sc) + Vector3(0.0, -_stand + ab.size.y * sc * 0.5, 0.0)
+			inst.scale = Vector3(sc, sc, sc)
+	else:
+		var mi := MeshInstance3D.new()   # repli : ancien corps procédural si le GLB manque
+		mi.mesh = _parts.body
+		mi.material_override = mat
+		_body.add_child(mi)
+	_head = null
+	_legs.clear()
 
 func _process(dt: float) -> void:
 	# LOD : gèle IA + animation au-delà du rayon serré (test de distance throttlé).

@@ -170,6 +170,8 @@ func _find_ground(from_pos: Vector3) -> float:
 	var from := from_pos + Vector3.UP * 2.0
 	var to := from_pos + Vector3.DOWN * 40.0
 	var q := PhysicsRayQueryParameters3D.create(from, to)
+	if _player is CollisionObject3D:
+		q.exclude = [(_player as CollisionObject3D).get_rid()]   # ne pas accrocher la capsule du joueur (phase aimant)
 	var h := space.intersect_ray(q)
 	if h.is_empty():
 		return INF

@@ -30,7 +30,8 @@ const GLIDE_RATIO := 8.0        # finesse : chute = vitesse / finesse
 const GLIDE_TURN_RATE := 0.8    # rad/s en virage plein
 const GLIDE_ACCEL := 6.0        # m/s² lissage de la vitesse-air vers la cible
 const WIND_DRIFT := 0.7         # m/s de dérive par unité de WeatherSystem.get_wind()
-const WIND_DIR := Vector3(1.0, 0.0, 0.4)   # direction MONDE de la dérive (normalisée à l'usage)
+const WIND_DIR := Vector3(1.0, 0.0, 0.4)   # direction MONDE de la dérive
+var _wind_dir_n := Vector3(1.0, 0.0, 0.4).normalized()   # précalculée une fois (évite un sqrt par frame de plané)
 const LEAN_DEADZONE := 0.06     # m : zone morte du transfert de poids (XR)
 const LEAN_STEER_GAIN := 5.0    # XR : lean latéral (m) -> virage
 const LEAN_PITCH_GAIN := 4.0    # XR : lean avant/arrière (m) -> vitesse/frein
@@ -79,9 +80,14 @@ var _lamp_prev := false  # front montant de la touche L (bureau)
 var _revolver             # Blaster.gd configuré en revolver « blaster » (cyan)
 var _plasma               # Blaster.gd configuré en fusil à plasma (vert, zoom avancé)
 var _grenade              # Blaster.gd en mode PROJECTILE : lance-grenades (explosif, dégâts de zone)
+var _harvest_tool         # HarvestTool : outil de récolte UNIQUE (abat les arbres ET casse les rochers)
+var _tool = null          # outil équipé (node) ou null — EXCLUSIF avec les armes
+var _tool_prev := false   # front touche H (bureau)
 var _blaster              # arme ACTIVE (= _revolver / _plasma / _grenade ; null = dégainé)
 var _plasma_scope         # ScopeView.gd : lunette VR (zoom optique SubViewport) montée sur le plasma
 var _armed := false       # une arme est équipée
+var _dprompt_yes_prev := false   # front de la réponse OUI au prompt « mode Drone »
+var _dprompt_no_prev := false    # front de la réponse NON au prompt « mode Drone »
 # Holster VR : zones de saisie sur le corps (repère tête + lacet). Main droite + grip près d'une zone => (dé)gaine.
 const HOLSTER_RADIUS := 0.20   # m : rayon de saisie autour d'un point d'arme
 var _grip_prev := false        # front montant du grip droit (évite la répétition tant que le grip reste tenu)
@@ -125,7 +131,7 @@ var _lock_ring: MeshInstance3D = null
 const HOLSTER_REVEAL := 0.45        # m : distance à laquelle le repère de holster commence à apparaître
 const HOLSTER_MARK_SIZE := 0.05     # m : rayon du repère (sphère) au plus proche
 var _holster_marks: Array = []      # 3 MeshInstance3D (hanche D / hanche G / épaule)
-var _holster_in := [false, false, false]   # main DANS chaque zone de saisie (pour le tic d'entrée)
+var _holster_in := [false, false, false, false]   # main DANS chaque zone de saisie (pour le tic d'entrée)
 var _stuck_t := 0.0   # anti-blocage : temps passé à "vouloir marcher sans avancer" (enfoncé/coincé)
 # Retour haptique XR (no-op en bureau) — état de suivi des différents pulses.
 var _step_foot := 1      # alterne le tic de foulée gauche/droite
@@ -249,6 +255,10 @@ func _ready() -> void:
 	_grenade.vest_recoil = 1.0         # recul gilet lourd (lance-grenades)
 	_grenade.visible = false
 	add_child(_grenade)
+	# Outil de récolte UNIQUE (hache+pioche, même GLB) — attaché à la main à l'équipement (comme les armes).
+	_harvest_tool = preload("res://scripts/Tool.gd").new()
+	_harvest_tool.visible = false
+	add_child(_harvest_tool)
 	_blaster = null
 	# Bouclier d'énergie main gauche (déployé avec le blaster).
 	_shield = preload("res://scripts/Shield.gd").new()
@@ -341,7 +351,7 @@ func exit() -> void:
 	for m in _holster_marks:
 		if is_instance_valid(m):
 			m.visible = false
-	_holster_in = [false, false, false]
+	_holster_in = [false, false, false, false]
 	_dead = false
 	_hp = HP_MAX
 	_hurt_t = 0.0
@@ -381,9 +391,38 @@ func toggle_grenade() -> bool:
 	_equip(null if _blaster == _grenade else _grenade)
 	return _armed
 
+# --- Outil de récolte UNIQUE (hache+pioche) : équipe / range. EXCLUSIF avec les armes. ---
+func toggle_tool() -> bool:
+	_equip_tool(null if _tool == _harvest_tool else _harvest_tool)
+	return _tool != null
+
+func active_tool() -> String:
+	return "tool" if _tool != null else ""
+
+func _equip_tool(t) -> void:
+	if t != null and _armed:
+		_equip(null)   # une seule chose en main droite : range l'arme d'abord
+	_holster_tool()
+	_tool = t
+	if t != null:
+		t.visible = true
+		_attach_weapon_to(t, _weapon_target(), _tool_offset())
+	_haptic(0.3, 0.06, 0.0, 1)
+
+func _holster_tool() -> void:
+	if _harvest_tool:
+		_harvest_tool.visible = false
+		_attach_weapon_to(_harvest_tool, self, Transform3D.IDENTITY)
+	_tool = null
+
+func _tool_offset() -> Transform3D:
+	return Transform3D.IDENTITY if _xr else Transform3D(Basis(), Vector3(0.12, -0.10, -0.25))
+
 # Sort l'arme `w` (ou null = dégainer) : range les deux armes, attache la nouvelle à la main, montre le bouclier.
 func _equip(w) -> void:
 	var was_armed := _armed   # pour distinguer une SORTIE fraîche (désarmé->armé) d'un CHANGEMENT d'arme (armé->arme)
+	if w != null and _tool != null:
+		_holster_tool()   # une arme en main => range l'outil de récolte (exclusif)
 	for g in [_revolver, _plasma, _grenade]:
 		if g:
 			g.visible = false
@@ -426,6 +465,18 @@ func _equip(w) -> void:
 		_hit_dir_t = 0.0
 		_heal_t = 0.0
 	GameState.combat_active = _armed
+	# Mode Drone (vagues) opt-in : à chaque SORTIE d'arme FRAÎCHE on DEMANDE avant de lancer les ennemis ; un simple
+	# changement d'arme ne redemande pas ; le rangement réinitialise. (Invité coop : rejoint direct la session de l'hôte.)
+	if fresh_draw:
+		if NetworkManager.is_active() and not NetworkManager.is_host():
+			GameState.drone_mode_prompt = false
+			GameState.drone_mode_on = true
+		else:
+			GameState.drone_mode_prompt = true
+			GameState.drone_mode_on = false
+	elif not _armed:
+		GameState.drone_mode_prompt = false
+		GameState.drone_mode_on = false
 	if not _armed:
 		if _combat_overlay:
 			_combat_overlay.clear()
@@ -444,6 +495,60 @@ func _weapon_offset() -> Transform3D:
 # Combat : le joueur est-il armé (une arme équipée) ? Lu par le WaveManager (ennemis opt-in).
 func is_armed() -> bool:
 	return _armed
+
+# --- Récolte (CP2) : point de la main droite (VR) / devant la caméra (bureau), entrée de cueillette, retour ---
+func tool_hand_point() -> Vector3:
+	if _xr and _right != null and is_instance_valid(_right):
+		return _right.global_position
+	var cam := get_active_camera()
+	if cam != null:
+		return cam.global_position - cam.global_transform.basis.z * 0.7
+	return global_position
+
+# Vrai si le joueur essaie de cueillir MAINTENANT (mains nues = NON armé ; gâchette droite VR / clic gauche bureau).
+func harvest_pressed() -> bool:
+	if _armed or _dead:
+		return false
+	if _xr:
+		return _right != null and _right.get_is_active() and _right.get_float("trigger") > 0.6
+	return Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT)
+
+# Retour sensoriel d'une cueillette réussie (petit « plop » + pulse haptique main droite).
+func harvest_feedback() -> void:
+	_haptic(0.35, 0.06, 0.0, 1)
+	AudioEngine.play_ui_confirm()
+
+# Prompt « lancer le mode Drone ? » à la sortie d'arme : OUI = gâchette DROITE (VR) / touche Y (bureau),
+# NON = gâchette GAUCHE (VR) / touche N (bureau). Le tir reste suspendu tant qu'on n'a pas répondu (cf. _update_weapon).
+func _update_drone_prompt() -> void:
+	if not GameState.drone_mode_prompt:
+		_dprompt_yes_prev = false
+		_dprompt_no_prev = false
+		return
+	if GameState.current_scale != GameState.Scale.SURFACE:
+		GameState.drone_mode_prompt = false   # hors surface : pas de mode Drone
+		return
+	var yes := false
+	var no := false
+	if _xr:
+		yes = _right != null and _right.get_is_active() and _right.get_float("trigger") > 0.6
+		no = _left != null and _left.get_is_active() and _left.get_float("trigger") > 0.6
+	else:
+		yes = Input.is_key_pressed(KEY_ENTER) or Input.is_key_pressed(KEY_Y)
+		no = Input.is_key_pressed(KEY_BACKSPACE)   # PAS Échap (ui_cancel) ni N (lance-grenades)
+	var yes_edge := yes and not _dprompt_yes_prev
+	var no_edge := no and not _dprompt_no_prev
+	_dprompt_yes_prev = yes
+	_dprompt_no_prev = no
+	if yes_edge:
+		GameState.drone_mode_prompt = false
+		GameState.drone_mode_on = true
+		AudioEngine.play_wave_start()       # confirme : les vagues démarrent
+		_haptic(0.5, 0.10, 0.0, 1)
+	elif no_edge:
+		GameState.drone_mode_prompt = false
+		GameState.drone_mode_on = false
+		_haptic(0.2, 0.05, 0.0, 0)
 
 # Nom de l'arme active ("Blaster" / "Plasma" / "" si dégainé) — pour l'UI montre.
 func active_weapon_name() -> String:
@@ -468,6 +573,7 @@ func _update_holster() -> void:
 		[hp + right * 0.20 + Vector3.DOWN * 0.62 + fwd * 0.04, 0, Color(0.4, 0.9, 1.0)],   # hanche D -> revolver
 		[hp - right * 0.20 + Vector3.DOWN * 0.62 + fwd * 0.04, 2, Color(1.0, 0.6, 0.15)],  # hanche G -> grenade
 		[hp + right * 0.17 + Vector3.DOWN * 0.06 - fwd * 0.14, 1, Color(0.45, 1.0, 0.55)], # épaule D -> plasma
+		[hp - right * 0.17 + Vector3.DOWN * 0.06 - fwd * 0.14, 3, Color(0.6, 0.45, 0.25)], # épaule G -> outil de récolte
 	]
 	_ensure_holster_markers()
 	var best := -1
@@ -506,6 +612,8 @@ func _update_holster() -> void:
 		toggle_plasma()
 	elif best == 2:
 		toggle_grenade()
+	elif best == 3:
+		toggle_tool()
 	if best >= 0:
 		_haptic(0.5, 0.1, 0.0, 1)   # retour de saisie (manette droite)
 
@@ -513,7 +621,7 @@ func _update_holster() -> void:
 func _ensure_holster_markers() -> void:
 	if not _holster_marks.is_empty():
 		return
-	for i in 3:
+	for i in 4:
 		var m := MeshInstance3D.new()
 		m.top_level = true
 		m.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
@@ -537,31 +645,26 @@ func _ensure_holster_markers() -> void:
 # Actif uniquement plasma dégainé. Verrou auto sur le drone le plus aligné avec le canon (cône), tir au front
 # de la gâchette GAUCHE (VR) / clic-molette (bureau) si munitions. Coop : le missile frappe la cible (réelle ou
 # fantôme) via take_damage -> l'invité rapporte le coup à l'hôte (validé ≤ MISSILE_DMG).
+const MISSILE_SCAN_INTERVAL := 0.1   # s : période de re-scan du candidat de verrou (pas à chaque frame)
+var _lock_scan_t := 0.0              # accumulateur de throttle du re-scan
+var _scan_best: Node3D = null        # dernier candidat trouvé (réutilisé entre deux scans)
 func _update_missile(delta: float) -> void:
-	if _blaster != _plasma or _plasma == null or _dead or not _armed:
+	if _blaster != _plasma or _plasma == null or _dead or not _armed or GameState.drone_mode_prompt:
 		_lock_candidate = null
 		_lock_target = null
 		_locked = false
 		_lock_t = 0.0
 		_update_lock_ring()
 		return
-	# Candidat = drone le plus aligné avec le canon, à portée (dans le cône).
-	var mt: Transform3D = _plasma.aim_transform()
-	var origin := mt.origin
-	var fwd := -mt.basis.z
-	var best: Node3D = null
-	var best_dot: float = cos(deg_to_rad(MISSILE_LOCK_ANGLE))
-	for d in get_tree().get_nodes_in_group("drone"):
-		if not is_instance_valid(d):
-			continue
-		var to: Vector3 = (d as Node3D).global_position - origin
-		var dist := to.length()
-		if dist > MISSILE_LOCK_RANGE or dist < 0.5:
-			continue
-		var dot := fwd.dot(to / dist)
-		if dot > best_dot:
-			best_dot = dot
-			best = d as Node3D
+	# Candidat = drone le plus aligné avec le canon (cône, à portée). Re-scan THROTTLÉ (~0.1 s) : la recherche
+	# de groupe + boucle O(n drones) ne tourne plus à chaque frame physique (le verrou tolère 0,1 s de latence).
+	_lock_scan_t -= delta
+	if _lock_scan_t <= 0.0:
+		_lock_scan_t = MISSILE_SCAN_INTERVAL
+		_scan_best = _scan_lock_candidate()
+	if not is_instance_valid(_scan_best):
+		_scan_best = null
+	var best: Node3D = _scan_best
 	# Verrou À MAINTENIR : garder le MÊME candidat dans le cône pendant MISSILE_LOCK_DWELL pour accrocher.
 	if best != _lock_candidate:
 		_lock_candidate = best
@@ -606,6 +709,26 @@ func _fire_missile() -> void:
 	BHaptics.weapon_recoil(0.6)
 	_pickup_msg = "MISSILE LANCÉ"
 	_pickup_msg_t = 0.7
+
+# Cherche le drone le plus aligné avec le canon du plasma (cône, à portée). Extrait pour throttler le scan.
+func _scan_lock_candidate() -> Node3D:
+	var mt: Transform3D = _plasma.aim_transform()
+	var origin := mt.origin
+	var fwd := -mt.basis.z
+	var best: Node3D = null
+	var best_dot: float = cos(deg_to_rad(MISSILE_LOCK_ANGLE))
+	for d in get_tree().get_nodes_in_group("drone"):
+		if not is_instance_valid(d):
+			continue
+		var to: Vector3 = (d as Node3D).global_position - origin
+		var dist := to.length()
+		if dist > MISSILE_LOCK_RANGE or dist < 0.5:
+			continue
+		var dot := fwd.dot(to / dist)
+		if dot > best_dot:
+			best_dot = dot
+			best = d as Node3D
+	return best
 
 # Anneau de verrouillage : créé paresseusement, posé (top_level) sur le drone verrouillé, tournoie ; masqué sinon.
 func _update_lock_ring() -> void:
@@ -840,7 +963,9 @@ func _update_combat(delta: float) -> bool:
 	if _combat_readout:
 		var rtxt := ""
 		if _armed:
-			if _dead:
+			if GameState.drone_mode_prompt:
+				rtxt = "MODE DRONE ?\nGâchette D = OUI     ·     Gâchette G = NON"
+			elif _dead:
 				rtxt = "ÉLIMINÉ"
 			else:
 				var pv := "PV %d" % int(round(_hp))
@@ -913,9 +1038,12 @@ func _physics_process(delta: float) -> void:
 	# Prise connectée : ventilo ON en vol/parapente OU en chute rapide (plongeon, saut de falaise) ; OFF sinon.
 	var falling_fast := not is_on_floor() and not _swimming and get_real_velocity().y < -PLUG_FALL_SPEED
 	SmartPlug.set_airborne(_flying or _gliding or falling_fast)
+	# Son de réacteurs (vol armure Iron Man) : intensité ∝ vitesse réelle.
+	AudioEngine.set_thrusters(_flying, clampf(get_real_velocity().length() / FLY_SPEED, 0.0, 1.0), delta)
 	_update_steps(delta)
 	_update_paraglider(delta)
 	_update_impact(delta)   # atterrissage de puissance (chute rapide) — tous modes sauf nage
+	_update_drone_prompt()  # prompt « mode Drone ? » à la sortie d'arme (suspend le tir tant qu'on n'a pas répondu)
 	_update_weapon(delta)   # blaster (combat opt-in) : suivi main + tir
 	if not _flying and not _gliding and not _swimming:
 		_anti_stuck(delta)
@@ -1011,14 +1139,16 @@ func _update_weapon(delta: float) -> void:
 		aiming = _right != null and _right.get_is_active() and _right.get_float("grip") > 0.6
 	else:
 		aiming = Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT)
-	if not _xr and aiming:
-		_eyes.fov = lerpf(_eyes.fov, _base_fov - _blaster.zoom_fov, clampf(10.0 * delta, 0.0, 1.0))   # zoom ADS par-arme (bureau)
+	# (FOV de visée ADS centralisé dans _update_paraglider : un seul écrit FOV par frame => plus de conflit
+	# avec le FOV de vitesse, le zoom atteint donc bien sa cible.)
 	_fire_cd = maxf(_fire_cd - delta, 0.0)
 	var firing := false
 	if _xr:
 		firing = _right != null and _right.get_is_active() and _right.get_float("trigger") > 0.6
 	else:
 		firing = Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT)
+	if GameState.drone_mode_prompt:
+		firing = false   # tir suspendu tant qu'on n'a pas répondu au prompt « mode Drone »
 	if firing and _fire_cd <= 0.0:
 		_fire_cd = (_blaster.fire_interval_ads if aiming else _blaster.fire_interval) / maxf(_firerate_mult, 0.05)
 		var shot = _blaster.fire([get_rid()], aiming)   # hitscan (retour { hit,pos,collider,charged })
@@ -1072,6 +1202,10 @@ func _update_equipment() -> void:
 		if grenade_pressed and not _grenade_prev:
 			toggle_grenade()
 		_grenade_prev = grenade_pressed
+		var tool_pressed := Input.is_physical_key_pressed(KEY_H)   # outil de récolte (hache+pioche)
+		if tool_pressed and not _tool_prev:
+			toggle_tool()
+		_tool_prev = tool_pressed
 	if not _flying and not _swimming:
 		_update_deploy()   # parapente (E) — désactivé pendant le vol Iron Man ET la nage (pas de voile sous l'eau)
 
@@ -1340,7 +1474,7 @@ func _glide(delta: float) -> void:
 	fwd = fwd.normalized()
 	var wind := Vector3.ZERO
 	if WeatherSystem.is_configured():
-		wind = WIND_DIR.normalized() * (WeatherSystem.get_wind() * WIND_DRIFT)
+		wind = _wind_dir_n * (WeatherSystem.get_wind() * WIND_DRIFT)
 	velocity = fwd * _glide_speed + Vector3.UP * (-sink) + wind
 	move_and_slide()
 	# Atterrissage = repli (retour marche). ANTICIPÉ : dès que le sol est proche (raycast ~2 m) on se replie
@@ -1498,7 +1632,12 @@ func _update_paraglider(delta: float) -> void:
 			add_fov = GLIDE_FOV_ADD * clampf((_glide_speed - GLIDE_SPEED_MIN) / (GLIDE_SPEED_MAX - GLIDE_SPEED_MIN), 0.0, 1.0)
 		elif _flying:
 			add_fov = FLY_FOV_ADD * clampf(velocity.length() / FLY_SPEED, 0.0, 1.0)   # punch FOV armure = + marqué
-		_eyes.fov = lerpf(_eyes.fov, _base_fov + add_fov, clampf(3.0 * delta, 0.0, 1.0))
+		# FOV bureau CENTRALISÉ ici (un seul écrit/frame) : la visée ADS (clic droit, arme équipée) PRIME sur le
+		# FOV de vitesse et atteint donc sa cible ; sinon FOV de vitesse (repos = _base_fov).
+		if _armed and _blaster != null and Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT):
+			_eyes.fov = lerpf(_eyes.fov, _base_fov - _blaster.zoom_fov, clampf(10.0 * delta, 0.0, 1.0))
+		else:
+			_eyes.fov = lerpf(_eyes.fov, _base_fov + add_fov, clampf(3.0 * delta, 0.0, 1.0))
 	# Repulseur Iron Man : s'éteint en douceur dès qu'on ne vole plus (XR compris).
 	if _repulsor and not _flying:
 		_repulsor.light_energy = lerpf(_repulsor.light_energy, 0.0, clampf(6.0 * delta, 0.0, 1.0))

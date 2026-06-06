@@ -78,11 +78,20 @@ func update(center: Vector3, submerged: float, delta: float) -> void:
 		if visible:
 			visible = false
 		return
+	var just_shown := not visible
 	visible = true
 	global_transform = Transform3D(Basis(), center)
 	_ymax = minf(y_high, (SEA_Y - SURFACE_MARGIN) - center.y)   # rester sous la surface (player-relative)
 	if _ymax < y_low + 1.0:
 		_ymax = y_low + 1.0
+	if just_shown:
+		# 1re apparition : rabat les poissons semés au-dessus du plafond dynamique (sous une surface peu profonde,
+		# le Y de spawn fixe pourrait crever la surface avant que le bornage doux ne les rappelle).
+		for i in count:
+			if _pos[i].y > _ymax:
+				var pp := _pos[i]
+				pp.y = _ymax
+				_pos[i] = pp
 	_step(minf(delta, 0.05))
 
 func _step(dt: float) -> void:

@@ -12,6 +12,7 @@ const RISE_MAX := 1.5
 
 var _pos: PackedVector3Array
 var _spd: PackedFloat32Array
+var _scl: PackedFloat32Array   # échelle figée par bulle (évite de relire le buffer MultiMesh chaque frame)
 var _rng := RandomNumberGenerator.new()
 var _t := 0.0
 
@@ -32,6 +33,8 @@ func _ready() -> void:
 	_pos.resize(N)
 	_spd = PackedFloat32Array()
 	_spd.resize(N)
+	_scl = PackedFloat32Array()
+	_scl.resize(N)
 	for i in N:
 		_respawn(i, true)
 	var smat := ShaderMaterial.new()
@@ -46,6 +49,7 @@ func _respawn(i: int, anywhere: bool) -> void:
 	_pos[i] = Vector3(cos(ang) * rad, y, sin(ang) * rad)
 	_spd[i] = _rng.randf_range(RISE_MIN, RISE_MAX)
 	var sc := _rng.randf_range(0.03, 0.07)
+	_scl[i] = sc
 	multimesh.set_instance_transform(i, Transform3D(Basis().scaled(Vector3(sc, sc, sc)), _pos[i]))
 
 func update(center: Vector3, submerged: float, delta: float) -> void:
@@ -70,5 +74,5 @@ func update(center: Vector3, submerged: float, delta: float) -> void:
 			_respawn(i, false)
 			continue
 		_pos[i] = p
-		var sc: float = (multimesh.get_instance_transform(i).basis.get_scale()).x
+		var sc := _scl[i]   # échelle figée (plus de read-back du buffer MultiMesh)
 		multimesh.set_instance_transform(i, Transform3D(Basis().scaled(Vector3(sc, sc, sc)), p))

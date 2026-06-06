@@ -9,6 +9,7 @@ static func voice_params(species_key: int) -> Dictionary:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = species_key * 2654435761 + 8311
 	return {
+		"key": species_key,                            # clé d'espèce (sert de clé de cache au WAV synthétisé)
 		"wave": rng.randi() % 3,                       # 0 sine, 1 triangle, 2 saw doux
 		"freq": rng.randf_range(220.0, 880.0),         # fréquence centrale de l'appel
 		"glide": rng.randf_range(-0.18, 0.22),         # glissando relatif (montant/descendant)
@@ -26,7 +27,7 @@ static func synth(v: Dictionary) -> AudioStreamWAV:
 	var buf := SfxSynth.make_buffer(v.get("dur", 0.3))
 	var n := buf.size()
 	var sr := float(SfxSynth.SR)
-	var f0: float = v.get("freq", 440.0) * (1.0 + randf_range(-0.03, 0.03))
+	var f0: float = v.get("freq", 440.0)   # synthèse DÉTERMINISTE (cache par espèce) ; le désaccord par appel passe par pitch_scale au play
 	var glide: float = v.get("glide", 0.0)
 	var vib_hz: float = v.get("vibrato_hz", 6.0)
 	var vib_amt: float = v.get("vibrato_amt", 0.0)

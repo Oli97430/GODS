@@ -5,8 +5,7 @@ extends Area3D
 
 signal died(pos)
 
-const SHIP_MODEL := "res://models/luminaris_starship.glb"   # GLB détaillé (lourd/bouclier/boss) — auto-échelle + centré
-const SHIP_MODEL_LIGHT := "res://models/spaceship/SpaceShip Free low-poly 3D model.obj"   # mesh LOW-POLY (perf) pour les drones COURANTS
+const SHIP_MODEL := "res://models/luminaris_starship.glb"   # vaisseau détaillé (luminaris) — TOUS les drones l'utilisent (auto-échelle + centré)
 const SHIP_SIZE := 2.4            # m : envergure cible (auto-échelle)
 const SHIP_ROT_DEG := Vector3(0.0, 0.0, 0.0)   # alignement visuel (à ajuster si le vaisseau vole « à l'envers »)
 const ORBIT_DIST := 7.5    # m : distance d'orbite (plus proche du joueur) — variée par drone
@@ -97,7 +96,7 @@ func _apply_archetype() -> void:
 			_scale_mult = 1.1; _speed_mult = 0.8; _hp_mult = 1.5; _fire_mult = 1.1; _turn_slow = true
 			_tint = Color(0.3, 0.7, 1.0)
 		ARCH_BOSS:
-			_scale_mult = 3.5; _speed_mult = 0.5; _hp_mult = 14.0; _fire_mult = 1.4; _sway_mult = 0.4
+			_scale_mult = 4.5; _speed_mult = 0.5; _hp_mult = 14.0; _fire_mult = 1.4; _sway_mult = 0.4
 			_tint = Color(1.0, 0.25, 0.15); _boss = true; _turn_slow = true
 		_:
 			pass
@@ -138,11 +137,9 @@ func _build_boss_bar() -> void:
 	_boss_bar.text = "BOSS"
 	add_child(_boss_bar)
 
-# Modèle selon l'archétype : low-poly léger pour les drones COURANTS, GLB détaillé pour lourd/bouclier/boss.
+# Tous les drones utilisent le MÊME vaisseau détaillé (luminaris) ; l'archétype ne change que l'échelle/teinte.
 func _model_path() -> String:
-	if archetype == ARCH_HEAVY or archetype == ARCH_SHIELDED or _boss:
-		return SHIP_MODEL
-	return SHIP_MODEL_LIGHT if ResourceLoader.exists(SHIP_MODEL_LIGHT) else SHIP_MODEL
+	return SHIP_MODEL
 
 # Fit (centre + plus grande dimension) d'un modèle, calculé UNE SEULE FOIS par chemin puis mis en CACHE (statique
 # => partagé par tous les drones) : évite la marche d'AABB récursive à chaque spawn.
@@ -170,8 +167,8 @@ func _ready() -> void:
 	_phase = _rng.randf() * TAU
 	_orbit = ORBIT_DIST + _rng.randf_range(-1.5, 3.5)   # certains s'approchent à ~6 m, d'autres ~11 m
 	_fire_cd = 1.0 + _rng.randf() * 1.5
-	# Visuel : modèle auto-échelle (envergure SHIP_SIZE) + centré + ombres off. Drones COURANTS = mesh LOW-POLY léger
-	# (perf), lourd/bouclier/boss = GLB détaillé. Le fit (centre+taille) est calculé UNE FOIS par modèle (cache statique).
+	# Visuel : vaisseau détaillé (luminaris) auto-échelle (envergure SHIP_SIZE × échelle d'archétype) + centré +
+	# ombres off. Le fit (centre+taille) est calculé UNE FOIS par modèle (cache statique), partagé par tous les drones.
 	_visual = Node3D.new()
 	var path := _model_path()
 	var model = load(path)

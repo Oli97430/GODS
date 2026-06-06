@@ -148,9 +148,17 @@ func _local_weapon_id() -> int:
 		"Grenade": return 2
 	return -1
 
+# Vrai si le transform est entièrement fini (origine + base) : filtre les valeurs corrompues (NaN/Inf) d'un pair.
+static func _finite_xform(t: Transform3D) -> bool:
+	return t.origin.is_finite() and t.basis.x.is_finite() and t.basis.y.is_finite() and t.basis.z.is_finite()
+
 # Reçu d'un pair : son état tête/mains/arme en espace-PLANÈTE. Bufferisé pour interpolation (prev->cur).
 @rpc("any_peer", "unreliable_ordered", "call_remote")
 func _net_state(head_p: Transform3D, lh_p: Transform3D, rh_p: Transform3D, hands: bool, weapon: int) -> void:
+	# Pair NON fiable : rejette tout transform non fini (NaN/Inf) avant bufferisation, sinon il propagerait
+	# des NaN dans le rendu de l'avatar/arme distants (même précaution que la validation des dégâts CoopCombat).
+	if not (_finite_xform(head_p) and _finite_xform(lh_p) and _finite_xform(rh_p)):
+		return
 	var id := multiplayer.get_remote_sender_id()
 	if not _avatars.has(id):
 		_spawn_avatar(id)

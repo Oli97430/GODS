@@ -39,3 +39,10 @@ var combat_result_score: int = 0  # score final (figé à la mort)
 var combat_overshield: float = 0.0     # PV de bouclier en sus (améliorations ramassées) — absorbés avant les PV
 var combat_dmg_mult: float = 1.0       # multiplicateur de dégâts (améliorations ramassées)
 var combat_firerate_mult: float = 1.0  # multiplicateur de cadence de tir (améliorations ramassées)
+
+# Mode Drone (vagues d'ennemis) : opt-in DEMANDÉ à chaque sortie d'arme (cf. PlayerController/WaveManager).
+var drone_mode_prompt: bool = false   # le jeu demande « lancer le mode Drone ? » (tir suspendu tant qu'on n'a pas répondu)
+var drone_mode_on: bool = false       # réponse = OUI => les vagues peuvent démarrer
+
+# Mode construction (CP4) : le joueur place des planches/murs dans le monde (exclusif avec la récolte).
+var build_active: bool = false

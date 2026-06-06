@@ -138,10 +138,10 @@ static func _pick_tree_rock(biome: int, slope: float, humidity: float, rng: Rand
 		PlanetGenerator.Biome.BEACH:
 			if slope < TREE_MAX_SLOPE and rng.randf() < PopulationTuning.scaled_prob(0.10, dens):
 				return VegetationLibrary.tree_variant(SpeciesLibrary.Species.PALM, rng)   # palmiers en bord de mer
-			return VegetationLibrary.V_ROCK_B if rng.randf() < PopulationTuning.scaled_prob(0.05, dens) else -1
+			return _rock_variant(biome, rng) if rng.randf() < PopulationTuning.scaled_prob(0.05, dens) else -1
 		PlanetGenerator.Biome.ROCK:
 			if rng.randf() < PopulationTuning.scaled_prob(0.35, dens):
-				return VegetationLibrary.V_ROCK_A if rng.randf() < 0.6 else VegetationLibrary.V_ROCK_B
+				return _rock_variant(biome, rng)
 			if slope < TREE_MAX_SLOPE and rng.randf() < PopulationTuning.scaled_prob(0.05, dens):
 				return VegetationLibrary.tree_variant(SpeciesLibrary.Species.TWISTED, rng)  # arbres noueux clairsemés
 			return -1
@@ -150,16 +150,32 @@ static func _pick_tree_rock(biome: int, slope: float, humidity: float, rng: Rand
 				var sp_plains := SpeciesLibrary.Species.PALM if humidity < 0.30 else SpeciesLibrary.Species.DECIDUOUS
 				return VegetationLibrary.tree_variant(sp_plains, rng)   # plaine sèche -> palmier ; sinon feuillu
 			if rng.randf() < PopulationTuning.scaled_prob(0.06, dens):
-				return VegetationLibrary.V_ROCK_A if rng.randf() < 0.5 else VegetationLibrary.V_ROCK_B
+				return _rock_variant(biome, rng)
 			return -1
 		PlanetGenerator.Biome.FOREST:
 			if slope < TREE_MAX_SLOPE and rng.randf() < PopulationTuning.scaled_prob(0.45, dens):
 				var sp_forest := SpeciesLibrary.Species.CONIFER if humidity > 0.6 else SpeciesLibrary.Species.DECIDUOUS
 				return VegetationLibrary.tree_variant(sp_forest, rng)   # forêt humide -> conifères ; sinon feuillus
 			if rng.randf() < PopulationTuning.scaled_prob(0.05, dens):
-				return VegetationLibrary.V_ROCK_A
+				return _rock_variant(biome, rng)
 			return -1
 	return -1
+
+# Type de rocher : surtout commun (gros gris / petit sombre), RAREMENT précieux (cuivre/or/cristal).
+# Les minerais/gemmes sont plus probables en biome ROCHE (montagnes). Déterministe (rng seedé du chunk).
+static func _rock_variant(biome: int, rng: RandomNumberGenerator) -> int:
+	var rocky := biome == PlanetGenerator.Biome.ROCK
+	var p_crystal := 0.030 if rocky else 0.012   # gemmes : très rare
+	var p_gold := 0.050 if rocky else 0.025      # or : rare
+	var p_copper := 0.110 if rocky else 0.070    # cuivre : peu commun
+	var r := rng.randf()
+	if r < p_crystal:
+		return VegetationLibrary.V_ROCK_CRYSTAL
+	if r < p_crystal + p_gold:
+		return VegetationLibrary.V_ROCK_GOLD
+	if r < p_crystal + p_gold + p_copper:
+		return VegetationLibrary.V_ROCK_COPPER
+	return VegetationLibrary.V_ROCK_A if rng.randf() < 0.6 else VegetationLibrary.V_ROCK_B
 
 # Choix herbe selon biome+humidité (ou -1 = rien). Phase 20 couche A : seuils × vegetation_density(biome).
 static func _pick_grass(biome: int, humidity: float, rng: RandomNumberGenerator, bank_mult: float = 1.0) -> int:
@@ -181,7 +197,20 @@ static func _pick_grass(biome: int, humidity: float, rng: RandomNumberGenerator,
 static func _instance_transform(variant: int, local: Vector3, rng: RandomNumberGenerator) -> Transform3D:
 	var yaw := rng.randf() * TAU
 	if variant in VegetationLibrary.ROCK_VARIANTS:
-		var s := rng.randf_range(1.0, 3.4)   # ×2 : gros rochers
+		# Tailles PAR TYPE : communs = gros blocs ; précieux = nodules/filons plus petits (même nb de tirages RNG).
+		var lo := 1.0
+		var hi := 3.4
+		match variant:
+			VegetationLibrary.V_ROCK_CRYSTAL:
+				lo = 0.7
+				hi = 1.5
+			VegetationLibrary.V_ROCK_GOLD:
+				lo = 0.9
+				hi = 1.9
+			VegetationLibrary.V_ROCK_COPPER:
+				lo = 1.0
+				hi = 2.3
+		var s := rng.randf_range(lo, hi)
 		var b := Basis.from_euler(Vector3(rng.randf_range(-0.3, 0.3), yaw, rng.randf_range(-0.3, 0.3)))
 		b = b.scaled(Vector3(s, s * rng.randf_range(0.7, 1.1), s))
 		return Transform3D(b, local)

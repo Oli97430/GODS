@@ -312,9 +312,65 @@ func _free_2d() -> AudioStreamPlayer:
 			return p
 	return _sfx2d[0] if not _sfx2d.is_empty() else null
 
+var _voice_cache := {}   # species_key -> AudioStreamWAV : la 1re créature d'une espèce synthétise, les suivantes réutilisent
+
 # Appel de faune positionnel (déclenché par Creature via /root/AudioEngine).
 func creature_call(world_pos: Vector3, v: Dictionary) -> void:
-	play_3d(CreatureVoice.synth(v), world_pos, float(v.get("volume_db", -7.0)), 1.0, "SFX")
+	# WAV mis en cache PAR ESPÈCE (synthèse déterministe) => plus de micro-hitch VR quand plusieurs créatures
+	# appellent la même frame. La micro-variation vivante par appel passe par un léger pitch (±3 %),
+	# le volume restant porté par volume_db (mix inchangé).
+	var key := int(v.get("key", 0))
+	var wav: AudioStreamWAV = _voice_cache.get(key)
+	if wav == null:
+		wav = CreatureVoice.synth(v)
+		_voice_cache[key] = wav
+	play_3d(wav, world_pos, float(v.get("volume_db", -7.0)), randf_range(0.97, 1.03), "SFX")
+
+# --- Réacteurs (vol armure Iron Man) : boucle synthétisée, volume/pitch ∝ vitesse. Pilotée par PlayerController. ---
+var _reactor: AudioStreamPlayer
+var _reactor_vol := -80.0
+
+func set_thrusters(on: bool, intensity: float, delta: float) -> void:
+	if _reactor == null:
+		_reactor = AudioStreamPlayer.new()
+		_reactor.bus = "SFX"
+		_reactor.stream = _synth_reactor()
+		add_child(_reactor)
+	var target := (lerpf(-15.0, -3.0, clampf(intensity, 0.0, 1.0)) if on else -80.0)
+	_reactor_vol = move_toward(_reactor_vol, target, 80.0 * maxf(delta, 0.0001))   # fondu doux (dB/s)
+	if on and not _reactor.playing:
+		_reactor.play()
+	_reactor.volume_db = _reactor_vol
+	_reactor.pitch_scale = lerpf(0.85, 1.3, clampf(intensity, 0.0, 1.0))
+	if not on and _reactor_vol <= -55.0 and _reactor.playing:
+		_reactor.stop()
+
+# Boucle de réacteur : rumble grave (fréquences entières => boucle propre) + souffle de jet filtré.
+func _synth_reactor() -> AudioStreamWAV:
+	var buf := SfxSynth.make_buffer(0.5)
+	var n := buf.size()
+	var sr := float(SfxSynth.SR)
+	var nz := SynthNoise.new(SynthNoise.Kind.WHITE)
+	var hp := Biquad.new(sr); hp.set_params(Biquad.Type.HIGHPASS, 600.0, 0.7)
+	var lp := Biquad.new(sr); lp.set_params(Biquad.Type.LOWPASS, 3200.0, 0.7)
+	var ph1 := 0.0
+	var ph2 := 0.0
+	var inc1 := TAU * 58.0 / sr      # rumble grave (29 périodes en 0,5 s => boucle sans clic)
+	var inc2 := TAU * 116.0 / sr     # harmonique
+	for i in n:
+		ph1 += inc1
+		if ph1 >= TAU: ph1 -= TAU
+		ph2 += inc2
+		if ph2 >= TAU: ph2 -= TAU
+		var rumble := sin(ph1) * 0.5 + sin(ph2) * 0.18
+		var hiss := lp.process(hp.process(nz.next())) * 0.6
+		buf[i] = rumble * 0.55 + hiss * 0.5
+	SfxSynth.normalize_peak(buf, 0.7)
+	var wav := SfxSynth.to_wav(buf)
+	wav.loop_mode = AudioStreamWAV.LOOP_FORWARD
+	wav.loop_begin = 0
+	wav.loop_end = n
+	return wav
 
 # Atterrissage de PUISSANCE (Iron Man / Hulk) : « boom » grave synthétisé UNE fois (cache) puis joué à
 # l'impact. strength 0..1 (force de la chute) module le volume + le grave (pitch). Positionnel (suit donc

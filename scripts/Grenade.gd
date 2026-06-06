@@ -53,6 +53,11 @@ func _ready() -> void:
 	add_child(_glow)
 
 func _process(delta: float) -> void:
+	# Combat terminé (désarmement) ou sortie de surface : on retire l'ordnance EN VOL au lieu de la laisser
+	# active hors-session (elle n'est parentée qu'à current_scene, que WaveManager._clear ne nettoie pas).
+	if not GameState.combat_active or GameState.current_scale != GameState.Scale.SURFACE:
+		queue_free()
+		return
 	if _dead:
 		return
 	var prev := global_position

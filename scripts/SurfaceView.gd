@@ -30,6 +30,8 @@ var _fishschools: Array = []   # bancs de poissons VARIÉS (FishSchool.gd) — p
 var _kelp         # champ d'algues/kelp (KelpField.gd) — lames enracinées au fond marin, ondulent sous l'eau
 var _shafts       # rais de lumière sous-marins (LightShafts.gd) — god rays, le jour, près de la surface
 var _bubbles      # bulles sous-marines (Bubbles.gd) — montent autour du joueur
+var _harvest      # HarvestManager.gd — cueillette de fruits sur les arbres (CP2)
+var _build        # BuildManager.gd — mode construction planches/murs (CP4)
 var _impact_burst # gerbe de débris d'atterrissage de puissance (ImpactBurst.gd) — déclenchée par PlayerController.impact
 var _waves         # WaveManager.gd : vagues de drones ennemis (combat opt-in, actif si le joueur est armé)
 var _rain: RainEffect
@@ -105,6 +107,12 @@ func _ready() -> void:
 	add_child(_shafts)
 	_bubbles = preload("res://scripts/Bubbles.gd").new()
 	add_child(_bubbles)
+	_harvest = preload("res://scripts/HarvestManager.gd").new()
+	add_child(_harvest)
+	_harvest.setup(_player)
+	_build = preload("res://scripts/BuildManager.gd").new()
+	add_child(_build)
+	_build.setup(_player)
 	# Atterrissage de puissance (Iron Man / Hulk) : gerbe de débris + onde de choc à l'impact d'une chute rapide.
 	_impact_burst = preload("res://scripts/ImpactBurst.gd").new()
 	add_child(_impact_burst)
@@ -154,6 +162,19 @@ func build(seed_local: int, landing_dir: Vector3, atmo_color: Color, star_system
 # Accès au ChunkManager (pour l'audio des POI de proximité).
 func get_chunk_manager() -> ChunkManager:
 	return _chunks
+
+# Mode construction (CP4) : place des planches/murs dans le monde via BuildManager.
+func start_build(item: String) -> void:
+	if _build:
+		_build.start(item)
+
+func start_plant(seed_id: String) -> void:
+	if _build:
+		_build.start_plant(seed_id)
+
+func cancel_build() -> void:
+	if _build:
+		_build.stop()
 
 # Info sol sous 'from' via raycast physique vers le bas (collision terrain). { hit, point,
 # normal, distance } — sert à valider que le sol est prêt avant le spawn (descente à pied).
@@ -382,5 +403,9 @@ func _process(delta: float) -> void:
 		_shafts.update(_player.global_position, cam_pos, 1.0 - night, submerged, depth01, delta)
 	if _bubbles:
 		_bubbles.update(_player.global_position, submerged, delta)
+	if _harvest:
+		_harvest.update(delta, get_chunk_manager())
+	if _build:
+		_build.update(delta)
 	AudioEngine.set_underwater(submerged)   # son étouffé sous l'eau (passe-bas Master, bypass hors de l'eau)
 	_update_ambient_haptics(delta)

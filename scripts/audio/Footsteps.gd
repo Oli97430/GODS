@@ -9,6 +9,9 @@ var _player: Node             # PlayerController
 var _surface_view: Node       # SurfaceView (pour biome_at + get_player)
 var _left := false
 
+const VARIANTS := 3           # nombre de bursts pré-rendus par biome (garde du grain sans figer une seule forme)
+var _step_cache := {}         # biome:int -> Array[AudioStreamWAV] : zéro synthèse en jeu après la 1re foulée
+
 func _process(_dt: float) -> void:
 	if GameState.current_scale != GameState.Scale.SURFACE:
 		return
@@ -33,8 +36,17 @@ func _on_step(world_pos: Vector3) -> void:
 		biome = _surface_view.biome_at(world_pos)
 	var ae := get_parent()
 	if ae and ae.has_method("play_3d"):
+		# Banque de bursts pré-rendus par biome : la 1re foulée sur un biome inédit en synthétise VARIANTS d'un coup,
+		# ensuite on réutilise (pitch/volume aléatoires conservent la variation). Plus de synthèse à chaque pas.
+		var bank: Array = _step_cache.get(biome)
+		if bank == null:
+			bank = []
+			for k in VARIANTS:
+				bank.append(_synth(biome))
+			_step_cache[biome] = bank
+		var wav: AudioStreamWAV = bank[randi() % bank.size()]
 		var pitch := randf_range(0.92, 1.08) * (1.02 if _left else 0.98)
-		ae.play_3d(_synth(biome), world_pos + Vector3(0, 0.05, 0), randf_range(-9.0, -5.0), pitch, "SFX")
+		ae.play_3d(wav, world_pos + Vector3(0, 0.05, 0), randf_range(-9.0, -5.0), pitch, "SFX")
 
 # Synthétise un burst de pas selon le biome (timbre + filtre + durée + release).
 func _synth(biome: int) -> AudioStreamWAV:
