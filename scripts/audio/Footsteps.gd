@@ -38,12 +38,14 @@ func _on_step(world_pos: Vector3) -> void:
 	if ae and ae.has_method("play_3d"):
 		# Banque de bursts pré-rendus par biome : la 1re foulée sur un biome inédit en synthétise VARIANTS d'un coup,
 		# ensuite on réutilise (pitch/volume aléatoires conservent la variation). Plus de synthèse à chaque pas.
-		var bank: Array = _step_cache.get(biome)
-		if bank == null:
-			bank = []
+		# NB : on teste has() avant de lire — Dictionary.get(absent) renvoie null, et affecter null à une
+		# variable typée Array plante (erreur fatale en build release => fermeture du jeu).
+		if not _step_cache.has(biome):
+			var fresh: Array = []
 			for k in VARIANTS:
-				bank.append(_synth(biome))
-			_step_cache[biome] = bank
+				fresh.append(_synth(biome))
+			_step_cache[biome] = fresh
+		var bank: Array = _step_cache[biome]
 		var wav: AudioStreamWAV = bank[randi() % bank.size()]
 		var pitch := randf_range(0.92, 1.08) * (1.02 if _left else 0.98)
 		ae.play_3d(wav, world_pos + Vector3(0, 0.05, 0), randf_range(-9.0, -5.0), pitch, "SFX")

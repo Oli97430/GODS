@@ -320,10 +320,11 @@ func creature_call(world_pos: Vector3, v: Dictionary) -> void:
 	# appellent la même frame. La micro-variation vivante par appel passe par un léger pitch (±3 %),
 	# le volume restant porté par volume_db (mix inchangé).
 	var key := int(v.get("key", 0))
-	var wav: AudioStreamWAV = _voice_cache.get(key)
-	if wav == null:
-		wav = CreatureVoice.synth(v)
-		_voice_cache[key] = wav
+	# NB : on teste has() avant de lire — Dictionary.get(absent) renvoie null, et affecter null à une
+	# variable typée AudioStreamWAV plante (erreur fatale en build release => fermeture du jeu).
+	if not _voice_cache.has(key):
+		_voice_cache[key] = CreatureVoice.synth(v)
+	var wav: AudioStreamWAV = _voice_cache[key]
 	play_3d(wav, world_pos, float(v.get("volume_db", -7.0)), randf_range(0.97, 1.03), "SFX")
 
 # --- Réacteurs (vol armure Iron Man) : boucle synthétisée, volume/pitch ∝ vitesse. Pilotée par PlayerController. ---
