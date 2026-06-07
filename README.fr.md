@@ -2,16 +2,16 @@
 
 *English: [README.md](README.md)*
 
-**GODS** est un explorateur spatial **contemplatif**, sans couture et déterministe, pour **PCVR** (et bureau), réalisé avec **Godot 4.6.2**. Au cœur, c'est de l'exploration pure — sans objectifs, sans menus qui gênent — à travers quatre échelles continues : **galaxie → système stellaire → planète (orbite) → surface de planète (à pied)**, avec un **mode combat arcade optionnel (opt-in)** et une **coopération en ligne** par-dessus, quand on en a envie. Tout est **généré procéduralement à partir d'un seed** : un même seed produit toujours le même univers, et ce que l'on voit depuis l'orbite est exactement ce que l'on foule au sol.
+**GODS** est un explorateur spatial **contemplatif**, sans couture et déterministe, pour **PCVR** (et bureau), réalisé avec **Godot 4.6.2**. Au cœur, c'est de l'exploration pure — sans objectifs, sans menus qui gênent — à travers quatre échelles continues : **galaxie → système stellaire → planète (orbite) → surface de planète (à pied)**, avec une **couche de survie & craft**, un **mode combat arcade optionnel**, et une **coopération en ligne** par-dessus quand on en a envie. Tout est **généré procéduralement à partir d'un seed** : un même seed produit toujours le même univers, et ce que l'on voit depuis l'orbite est exactement ce que l'on foule au sol.
 
-> Mets un casque, choisis une étoile, plonge vers une planète, pose-toi, et remonte une rivière jusqu'à la mer pendant que le soleil traverse le ciel.
+> Mets un casque, choisis une étoile, plonge vers une planète, pose-toi, construis un abri pendant que le soleil se couche, et regarde les aurores illuminer le ciel nocturne.
 
 ---
 
 ## ✨ Fonctionnalités
 
 ### Quatre échelles sans couture
-- **Galaxie** — 400 systèmes générés depuis un seed global, navigables comme un nuage de points 3D.
+- **Galaxie** — 400 systèmes générés depuis un seed global, navigables comme un nuage de points 3D. Choisis un système par seed ou sélectionne un des 16 préréglages nommés depuis le **menu de départ** avant de plonger.
 - **Système** — étoile + planètes placées procéduralement sur des orbites vivantes (une seule horloge simulée).
 - **Planète (orbite)** — sphère planétaire érodée avec océans, rivières, lacs, nuages, atmosphère, lunes & anneaux.
 - **Surface** — terrain streamé par chunks, exploré à pied, avec rebasage à origine flottante pour la précision.
@@ -25,13 +25,25 @@
 - **Cycle jour/nuit & ciel dynamique** (nuages volumétriques, lever/coucher, **aurores** sur ~40 % des planètes la nuit).
 - **Météo** (couverture nuageuse, pluie, orages avec éclairs déterministes) — même lieu + même heure → même météo.
 - **Lunes & anneaux** cohérents aux trois échelles.
+- **Faune** — tortues, oiseaux et autres créatures se promènent et réagissent à ta présence.
 - **Audio procédural** — ambiances synthétisées en temps réel, pas, cris de faune, UI et météo, mixés par échelle.
 
 ### Locomotion & confort
 - **Marche**, **saut**, **vol libre « Iron Man »** (armure sans gravité), et un **parapente** pour planer.
 - **Vignette de confort** qui se resserre avec la vitesse (anti-nausée), **rotation par cran ou continue**, le tout réglable.
 - **Panneau Options worldspace** en VR (sans enlever le casque) + un overlay plat au bureau — mêmes réglages.
-- **Ordinateur de poignet** en VR (regarde ton poignet gauche) : échelle, coordonnées, contrôle du temps, météo, points d'intérêt proches.
+- **Ordinateur de poignet** en VR (regarde ton poignet gauche) : échelle, coordonnées, temps, météo, inventaire, craft, construction et points d'intérêt proches.
+
+### Survie & craft
+Tout le craft et la construction est **entièrement optionnel** — l'explorateur contemplatif est intact si tu l'ignores.
+
+- **Récolte** : cueille des fruits, abats des arbres (geste hache), mine des rochers (geste pioche) pour obtenir pierre, fer, cuivre, or et cristaux.
+- **Fonte** des minerais en lingots dans l'onglet **Fonderie** de l'ordinateur de poignet.
+- **Fabrication** de pièces structurelles : planches, murs de pierre, toits de chaume, piliers en fer, portes en cuivre, lanternes dorées.
+- **Construction** : pose les pièces avec un aperçu fantôme, accroche-toi au terrain et empile-les pour construire abris et tours.
+- **Édition des constructions** : vise une pièce posée pour la supprimer (ressource remboursée) ou la prendre et la déplacer — édition non destructive.
+- **Blocs cubiques façon Minecraft** (1 m³) : bois, pierre, feuillage, fer — **pose sur grille**, **empilage face à face** (vise une face d'un bloc existant pour coller le suivant flush). Construis des murs, des tours, des pièces bloc par bloc.
+- **Jardinage** : décompose un fruit en graine, plante-la dans le sol, et un nouvel arbre pousse avec le temps.
 
 ### Matériel
 - **OpenXR** (Virtual Desktop / SteamVR / natif) avec **manettes ou suivi des mains**.
@@ -77,8 +89,11 @@ C'est tout.
 | **F** | Activer le vol Iron Man (Espace = monter, C = descendre, Maj = boost) |
 | **E** | Déployer / replier le parapente (en l'air) |
 | **Clic gauche / Entrée** | Sélectionner / descendre d'une échelle (atterrir, etc.) |
-| **Échap** | Remonter d'une échelle |
+| **Échap** | Remonter d'une échelle / annuler la pose |
 | **Tab** | Ouvrir/fermer le menu Options |
+| **Clic gauche** *(en mode pose)* | Poser une pièce / un bloc |
+| **X** *(visé sur une pièce posée)* | La supprimer (ressource remboursée) |
+| **G** *(visé sur une pièce posée)* | La ramasser et la déplacer |
 
 ### VR — sur une surface de planète
 | Entrée | Action |
@@ -91,7 +106,10 @@ C'est tout.
 | **Y (gauche)** | Remonter en orbite |
 | **☰ menu (gauche)** | Ouvrir/fermer le panneau Options worldspace |
 | **Visée manette droite + gâchette** *(ou index)* | Interagir avec les panneaux / la montre |
-| **Regarder son poignet gauche** | Ordinateur de poignet (échelle, coord, temps, météo) |
+| **Regarder son poignet gauche** | Ordinateur de poignet (inventaire, craft, construction…) |
+| **Gâchette** *(en mode pose)* | Poser une pièce / un bloc |
+| **Grip (appui court)** *(visé sur une pièce)* | La supprimer (ressource remboursée) |
+| **Grip (maintenu ~0,5 s)** *(visé sur une pièce)* | La ramasser et la déplacer |
 
 ### VR — galaxie / système / planète (orbite)
 | Entrée | Action |
@@ -100,6 +118,15 @@ C'est tout.
 | **B (droite)** | Remonter d'une échelle |
 | **Grip** | Saisir pour tourner/déplacer l'hologramme |
 | **Stick droit (haut/bas)** | Zoom |
+
+### Onglets de l'ordinateur de poignet
+| Onglet | Contenu |
+|---|---|
+| **Sonde** | Sonde planétaire — biome, altitude, heure |
+| **Temps** | Contrôle du temps (pause / accélération / temps réel) |
+| **Sac** | Inventaire (objets collectés, manger pour se soigner) |
+| **Bâtir** | Fonderie · Construction · Blocs · Jardinage |
+| **Coop** | Coopération (héberger / rejoindre / quitter) |
 
 ---
 
@@ -144,6 +171,7 @@ Projet Godot standard.
 - **Hydrologie** (flow map + érosion) bakée hors-thread au 1er accès planète ; rivières/lacs/cascades en découlent.
 - **UI worldspace** (montre & panneau options) rendue dans des `SubViewport` sur des quads, pilotée par rayon/doigt réinjecté en événements souris synthétiques.
 - **Audio DSP fait maison** alimentant des `AudioStreamGenerator` (oscillateurs, biquads, enveloppes, bruit).
+- **Craft & construction déterministes** : chaque pièce posée, rocher miné et arbre planté est reproductible depuis le même seed + actions du joueur, avec comptabilité des ressources et remboursement à la suppression.
 
 ---
 

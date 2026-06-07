@@ -2,16 +2,16 @@
 
 *Français : [README.fr.md](README.fr.md)*
 
-**GODS** is a seamless, deterministic, **contemplative** space explorer for **PCVR** (and desktop) built in **Godot 4.6.2**. At its heart it's pure exploration — no objectives, no menus in the way — across four continuous scales: **galaxy → star system → planet (orbit) → planet surface (on foot)**, with an **optional, opt-in arcade combat mode** and **online co-op** layered on top for when you want them. Everything is **generated procedurally from a seed**, so the same seed always yields the same universe, and what you see from orbit is exactly what you walk on at ground level.
+**GODS** is a seamless, deterministic, **contemplative** space explorer for **PCVR** (and desktop) built in **Godot 4.6.2**. At its heart it's pure exploration — no objectives, no menus in the way — across four continuous scales: **galaxy → star system → planet (orbit) → planet surface (on foot)**, with a **survival & crafting layer**, an **optional arcade combat mode**, and **online co-op** layered on top for when you want them. Everything is **generated procedurally from a seed**, so the same seed always yields the same universe, and what you see from orbit is exactly what you walk on at ground level.
 
-> Put on a headset, pick a star, dive toward a planet, land on it, and walk a river to the sea while the sun crosses the sky.
+> Put on a headset, pick a star, dive toward a planet, land on it, build a shelter while the sun sets, and watch the aurora light up the night sky.
 
 ---
 
 ## ✨ Features
 
 ### Four seamless scales
-- **Galaxy** — 400 star systems generated from a global seed, navigable as a 3D point cloud.
+- **Galaxy** — 400 star systems generated from a global seed, navigable as a 3D point cloud. Choose a system by seed or pick one of 16 named presets from the **start menu** before diving in.
 - **System** — star + procedurally placed planets on live orbits (driven by a single simulated clock).
 - **Planet (orbit)** — eroded planet sphere with oceans, rivers, lakes, clouds, atmosphere, moons & rings.
 - **Surface** — streamed, chunked terrain you explore on foot, with floating-origin rebasing for precision.
@@ -25,13 +25,25 @@
 - **Day/night cycle & dynamic sky** (volumetric clouds, sunrise/sunset, **aurorae** on ~40% of planets at night).
 - **Weather** (cloud cover, rain, storms with deterministic lightning) — same place + same time → same weather.
 - **Moons & rings** consistent across all three scales.
+- **Fauna** — turtles, birds, and other creatures wander and react to you.
 - **Procedural audio** — real-time synthesized ambiences, footsteps, fauna calls, UI, and weather, mixed per scale.
 
 ### Locomotion & comfort
 - **Walk**, **jump**, **Iron Man free-flight** (gravity-off armor), and a **paraglider** for soaring.
 - **Comfort vignette** that tightens with speed (anti-nausea), **snap or smooth turning**, all tunable.
 - **Worldspace Options panel** in VR (no need to remove the headset) + a flat desktop overlay — same settings.
-- **Wrist computer** in VR (look at your left wrist): scale, coordinates, time controls, weather, nearby points of interest.
+- **Wrist computer** in VR (look at your left wrist): scale, coordinates, time controls, weather, inventory, crafting, building, and nearby points of interest.
+
+### Survival & crafting
+All crafting and building is **fully optional** — the contemplative explorer is intact if you ignore it.
+
+- **Harvest**: pick fruits, chop trees (axe swing), mine rocks (pickaxe swing) for stone, iron, copper, gold and gem crystals.
+- **Smelt** ore into ingots in the **Foundry** tab of the wrist computer.
+- **Craft** structural pieces: planks, stone walls, thatch roofs, iron pillars, copper doors, golden lanterns.
+- **Build**: place pieces with a ghost preview, snap to terrain, and stack them to construct shelters and towers.
+- **Edit constructions**: aim at any placed piece to delete it (resource refunded) or pick it up and move it — non-destructive editing.
+- **Minecraft-style cubic blocks** (1 m³): wood, stone, leaf, iron — **grid-snapped placement**, **face-stacking** (aim a face of an existing block to snap the next one flush against it). Build walls, towers, rooms block by block.
+- **Plant seeds**: decompose a fruit into a seed, plant it in soil, and a new tree grows over time.
 
 ### Hardware
 - **OpenXR** (Virtual Desktop / SteamVR / native) with **controllers or hand tracking**.
@@ -77,8 +89,11 @@ That's it.
 | **F** | Toggle Iron Man flight (Space = up, C = down, Shift = boost) |
 | **E** | Deploy / fold paraglider (while airborne) |
 | **Left-click / Enter** | Select / descend one scale (land on a planet, etc.) |
-| **Escape** | Ascend one scale |
+| **Escape** | Ascend one scale / cancel placement |
 | **Tab** | Open/close the Options menu |
+| **Left-click** *(while placing)* | Place a piece / block |
+| **X** *(aimed at a placed piece)* | Delete it (resource refunded) |
+| **G** *(aimed at a placed piece)* | Pick it up and move it |
 
 ### VR — on a planet surface
 | Input | Action |
@@ -91,7 +106,10 @@ That's it.
 | **Y (left)** | Go back up to orbit |
 | **☰ menu (left)** | Open/close the worldspace Options panel |
 | **Right controller aim + trigger** *(or index finger)* | Interact with panels / the wrist computer |
-| **Look at your left wrist** | Wrist computer (scale, coords, time, weather) |
+| **Look at your left wrist** | Wrist computer (inventory, crafting, building…) |
+| **Trigger** *(while placing)* | Place a piece / block |
+| **Grip (short press)** *(aimed at a piece)* | Delete it (resource refunded) |
+| **Grip (hold ~0.5 s)** *(aimed at a piece)* | Pick it up and move it |
 
 ### VR — galaxy / system / planet (orbit)
 | Input | Action |
@@ -100,6 +118,15 @@ That's it.
 | **B (right)** | Ascend one scale |
 | **Grip** | Grab to rotate/move the holographic view |
 | **Right stick (up/down)** | Zoom |
+
+### Wrist computer tabs
+| Tab | Contents |
+|---|---|
+| **Sonde** | Planet probe — biome, altitude, time |
+| **Temps** | Time controls (pause / fast-forward / real-time) |
+| **Sac** | Inventory (items collected, eat to heal) |
+| **Bâtir** | Foundry · Crafting · Blocks · Gardening |
+| **Coop** | Co-op (host / join / quit) |
 
 ---
 
@@ -144,6 +171,7 @@ This is a standard Godot project.
 - **Hydrology** (flow map + erosion) baked off-thread on first planet visit; rivers/lakes/waterfalls rendered from it.
 - **Worldspace UI** (wrist computer & options panel) rendered to `SubViewport`s on quads, driven by ray/finger input re-injected as synthetic mouse events.
 - **From-scratch DSP audio** feeding `AudioStreamGenerator`s (oscillators, biquads, envelopes, noise).
+- **Deterministic crafting & building**: every placed object, mined rock and grown tree is reproducible from the same seed + player actions, with resource accounting and refund on removal.
 
 ---
 

@@ -518,6 +518,13 @@ func harvest_feedback() -> void:
 	_haptic(0.35, 0.06, 0.0, 1)
 	AudioEngine.play_ui_confirm()
 
+# Édition des constructions (CP4) : valeur du grip droit VR (0..1) quand mains libres ; 0 sinon / au bureau.
+# Utilisé par BuildManager pour « grip court = déplacer / grip long = supprimer » la pièce visée.
+func build_edit_grip() -> float:
+	if _xr and not _armed and not _dead and _right != null and _right.get_is_active():
+		return _right.get_float("grip")
+	return 0.0
+
 # Prompt « lancer le mode Drone ? » à la sortie d'arme : OUI = gâchette DROITE (VR) / touche Y (bureau),
 # NON = gâchette GAUCHE (VR) / touche N (bureau). Le tir reste suspendu tant qu'on n'a pas répondu (cf. _update_weapon).
 func _update_drone_prompt() -> void:

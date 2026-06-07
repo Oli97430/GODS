@@ -29,7 +29,7 @@ static var ITEMS := {
 	"fruit_berry":    {"name": "Baies",            "color": Color(0.50, 0.18, 0.58), "kind": KIND_FRUIT, "heal": 8.0},
 	"cone_pine":      {"name": "Pomme de pin",     "color": Color(0.45, 0.30, 0.16), "kind": KIND_FRUIT, "heal": 0.0},   # résine : non comestible
 	# Graines (plantables, CP4)
-	"seed_deciduous": {"name": "Gland",                 "color": Color(0.55, 0.40, 0.22), "kind": KIND_SEED, "plantable": true},
+	"seed_deciduous": {"name": "Pépin de pomme",        "color": Color(0.55, 0.40, 0.22), "kind": KIND_SEED, "plantable": true},
 	"seed_palm":      {"name": "Graine de palmier",     "color": Color(0.50, 0.38, 0.24), "kind": KIND_SEED, "plantable": true},
 	"seed_conifer":   {"name": "Graine de conifère",    "color": Color(0.42, 0.34, 0.22), "kind": KIND_SEED, "plantable": true},
 	"seed_twisted":   {"name": "Graine noueuse",        "color": Color(0.40, 0.30, 0.26), "kind": KIND_SEED, "plantable": true},
@@ -38,8 +38,8 @@ static var ITEMS := {
 	"leaf_palm":      {"name": "Palme",            "color": Color(0.32, 0.52, 0.26), "kind": KIND_LEAF},
 	"needle":         {"name": "Aiguilles",        "color": Color(0.24, 0.42, 0.28), "kind": KIND_LEAF},
 	"leaf_dry":       {"name": "Feuille sèche",     "color": Color(0.55, 0.45, 0.22), "kind": KIND_LEAF},
-	# Bois (par essence)
-	"wood_oak":       {"name": "Bois de chêne",    "color": Color(0.52, 0.36, 0.20), "kind": KIND_WOOD},
+	# Bois (par essence ; wood_oak = essence du feuillu à pommes => « bois de pommier » pour rester cohérent)
+	"wood_oak":       {"name": "Bois de pommier",  "color": Color(0.52, 0.36, 0.20), "kind": KIND_WOOD},
 	"wood_palm":      {"name": "Bois de palmier",  "color": Color(0.60, 0.45, 0.26), "kind": KIND_WOOD},
 	"wood_pine":      {"name": "Bois de pin",      "color": Color(0.58, 0.42, 0.24), "kind": KIND_WOOD},
 	"wood_dark":      {"name": "Bois sombre",      "color": Color(0.34, 0.26, 0.20), "kind": KIND_WOOD},
@@ -64,6 +64,11 @@ static var ITEMS := {
 	"pillar_iron":    {"name": "Pilier en fer",     "color": Color(0.42, 0.40, 0.38), "kind": KIND_BUILD},
 	"door_copper":    {"name": "Porte en cuivre",   "color": Color(0.68, 0.46, 0.30), "kind": KIND_BUILD},
 	"lamp_gold":      {"name": "Lanterne dorée",    "color": Color(0.88, 0.74, 0.34), "kind": KIND_BUILD},
+	# Blocs cubiques (empilables, façon Minecraft)
+	"block_wood":     {"name": "Bloc de bois",      "color": Color(0.55, 0.40, 0.24), "kind": KIND_BUILD},
+	"block_stone":    {"name": "Bloc de pierre",    "color": Color(0.52, 0.52, 0.55), "kind": KIND_BUILD},
+	"block_leaf":     {"name": "Bloc de feuillage", "color": Color(0.26, 0.50, 0.24), "kind": KIND_BUILD},
+	"block_iron":     {"name": "Bloc de fer",       "color": Color(0.62, 0.64, 0.68), "kind": KIND_BUILD},
 }
 
 # --- Portées / gestes / repousse (s = secondes réelles) ---

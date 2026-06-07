@@ -14,7 +14,7 @@ const FAUNA_ROSTER_MAX := 7
 
 # --- Multiplicateurs GLOBAUX (réglage rapide d'ensemble, toutes couches) ---
 const VEGETATION_GLOBAL := 2.0   # densité de végétation TRÈS élevée (vraies forêts où l'on marche)
-const FAUNA_GLOBAL := 1.0
+const FAUNA_GLOBAL := 1.5         # plus de créatures (tortues) : enrichit surtout les biomes pauvres vers leur plafond
 const CLUTTER_GLOBAL := 1.0
 
 # Plafond de sécurité d'une probabilité de semis après multiplication (évite « tout le temps »).

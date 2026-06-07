@@ -170,31 +170,46 @@ func _build_ui() -> void:
 	food_row.add_child(eat_btn)
 	var seed_btn := _mk_tool_button("→ Graines", _on_decompose, 16, 50)
 	food_row.add_child(seed_btn)
+
+	# --- Onglet BÂTIR : fonderie + construction + blocs (Minecraft) + jardinage (déplacés du Sac : tient dans le panneau) ---
+	var t_build := _make_tab(tabs, "Bâtir")
 	# Fonderie (CP4) : transformer les minerais en lingots.
-	_add_label(t_bag, "— Fonderie (2 minerais → lingot) —", 12, Color(0.75, 0.62, 0.50))
+	_add_label(t_build, "— Fonderie (2 minerais → lingot) —", 12, Color(0.75, 0.62, 0.50))
 	var smelt_row := HBoxContainer.new()
 	smelt_row.add_theme_constant_override("separation", 4)
-	t_bag.add_child(smelt_row)
+	t_build.add_child(smelt_row)
 	smelt_row.add_child(_mk_tool_button("Fer", _on_smelt_iron, 13, 38))
 	smelt_row.add_child(_mk_tool_button("Cuivre", _on_smelt_copper, 13, 38))
 	smelt_row.add_child(_mk_tool_button("Or", _on_smelt_gold, 13, 38))
 	# Construction (CP4) : placer des pièces dans le monde.
-	_add_label(t_bag, "— Construction —", 12, Color(0.70, 0.62, 0.48))
+	_add_label(t_build, "— Construction —", 12, Color(0.70, 0.62, 0.48))
 	var craft_r1 := HBoxContainer.new()
 	craft_r1.add_theme_constant_override("separation", 4)
-	t_bag.add_child(craft_r1)
+	t_build.add_child(craft_r1)
 	craft_r1.add_child(_mk_tool_button("Planche", _on_craft_plank, 13, 38))
 	craft_r1.add_child(_mk_tool_button("Mur", _on_craft_wall, 13, 38))
 	craft_r1.add_child(_mk_tool_button("Toit", _on_craft_roof, 13, 38))
 	var craft_r2 := HBoxContainer.new()
 	craft_r2.add_theme_constant_override("separation", 4)
-	t_bag.add_child(craft_r2)
+	t_build.add_child(craft_r2)
 	craft_r2.add_child(_mk_tool_button("Pilier", _on_craft_pillar, 13, 38))
 	craft_r2.add_child(_mk_tool_button("Porte", _on_craft_door, 13, 38))
 	craft_r2.add_child(_mk_tool_button("Lanterne", _on_craft_lamp, 13, 38))
+	# Blocs cubiques (façon Minecraft) : se posent sur grille + s'empilent sur la face visée.
+	_add_label(t_build, "— Blocs (empilables, façon Minecraft) —", 12, Color(0.60, 0.72, 0.58))
+	var blk_r1 := HBoxContainer.new()
+	blk_r1.add_theme_constant_override("separation", 4)
+	t_build.add_child(blk_r1)
+	blk_r1.add_child(_mk_tool_button("Bois ×4", _on_block_wood, 13, 38))
+	blk_r1.add_child(_mk_tool_button("Pierre ×4", _on_block_stone, 13, 38))
+	var blk_r2 := HBoxContainer.new()
+	blk_r2.add_theme_constant_override("separation", 4)
+	t_build.add_child(blk_r2)
+	blk_r2.add_child(_mk_tool_button("Feuillage ×4", _on_block_leaf, 13, 38))
+	blk_r2.add_child(_mk_tool_button("Fer ×2", _on_block_iron, 13, 38))
 	# Jardinage (CP4) : replanter des graines → arbres.
-	_add_label(t_bag, "— Jardinage —", 12, Color(0.55, 0.72, 0.48))
-	t_bag.add_child(_mk_tool_button("Planter une graine", _on_plant, 13, 38))
+	_add_label(t_build, "— Jardinage —", 12, Color(0.55, 0.72, 0.48))
+	t_build.add_child(_mk_tool_button("Planter une graine", _on_plant, 13, 38))
 
 	# --- Onglet COOP : multijoueur + changement de système + armes (combat opt-in) ---
 	var t_coop := _make_tab(tabs, "Coop")
@@ -761,6 +776,27 @@ func _on_craft_lamp() -> void:
 	_craft_single("ingot_gold", 1, "lamp_gold")
 	_enter_build("lamp_gold")
 
+# --- Blocs cubiques (façon Minecraft) : fabriquent un PETIT LOT puis entrent en construction ---
+func _on_block_wood() -> void:
+	ui_confirm.emit()
+	_craft_batch(HarvestLibrary.KIND_WOOD, 1, "block_wood", 4)
+	_enter_build("block_wood")
+
+func _on_block_stone() -> void:
+	ui_confirm.emit()
+	_craft_batch(HarvestLibrary.KIND_STONE, 1, "block_stone", 4)
+	_enter_build("block_stone")
+
+func _on_block_leaf() -> void:
+	ui_confirm.emit()
+	_craft_batch(HarvestLibrary.KIND_LEAF, 2, "block_leaf", 4)
+	_enter_build("block_leaf")
+
+func _on_block_iron() -> void:
+	ui_confirm.emit()
+	_craft_batch_id("ingot_iron", 1, "block_iron", 2)
+	_enter_build("block_iron")
+
 # --- Jardinage : replanter une graine ---
 func _on_plant() -> void:
 	ui_confirm.emit()
@@ -803,6 +839,30 @@ func _craft_consume(kind: String, n: int, output: String) -> void:
 			Inventory.consume_resource(id, take)
 			left -= take
 	Inventory.add_resource(output, 1)
+
+# Lot : consomme `n_in` unités de la catégorie `kind` et produit `n_out` `output`. Pas assez → skip.
+func _craft_batch(kind: String, n_in: int, output: String, n_out: int) -> void:
+	var total := 0
+	for id in Inventory.resources:
+		if HarvestLibrary.item_kind(id) == kind:
+			total += int(Inventory.resources[id])
+	if total < n_in:
+		return
+	var left := n_in
+	for id in Inventory.resources.keys():
+		if left <= 0:
+			break
+		if HarvestLibrary.item_kind(id) == kind:
+			var take := mini(int(Inventory.resources[id]), left)
+			Inventory.consume_resource(id, take)
+			left -= take
+	Inventory.add_resource(output, n_out)
+
+# Lot par id EXACT : consomme `n_in` de `item_id`, produit `n_out` `output`. Pas assez → skip.
+func _craft_batch_id(item_id: String, n_in: int, output: String, n_out: int) -> void:
+	if Inventory.resource_count(item_id) >= n_in:
+		Inventory.consume_resource(item_id, n_in)
+		Inventory.add_resource(output, n_out)
 
 # Surligne (modulate vert) le bouton de l'arme active ; les autres restent blancs.
 func _refresh_weapon_buttons() -> void:

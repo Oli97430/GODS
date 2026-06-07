@@ -14,7 +14,7 @@ extends RefCounted
 const FAUNA_GRID := 4       # 4x4 = 16 candidats / chunk (cellule ~64 m sur chunk de 256 m)
 const SPAWN_CHANCE := 0.4   # proba qu'une cellule éligible fasse apparaître une créature
 const OFF_BIOME_FACTOR := 0.3  # poids relatif d'une espèce hors de son biome préféré (présence diffuse)
-const MAX_PER_CHUNK := 5     # plafond d'instances par chunk (budget ; densité « peu dense mais vivante »)
+const MAX_PER_CHUNK := 7     # plafond d'instances par chunk (budget ; relevé pour « davantage de tortues »)
 const MAX_SLOPE := 0.7      # tan(angle) max : pas de créatures sur falaises
 const SLOPE_EPS := 4.0      # mètres : pas pour l'estimation de pente
 

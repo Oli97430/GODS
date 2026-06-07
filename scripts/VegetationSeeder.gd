@@ -138,9 +138,9 @@ static func _pick_tree_rock(biome: int, slope: float, humidity: float, rng: Rand
 		PlanetGenerator.Biome.BEACH:
 			if slope < TREE_MAX_SLOPE and rng.randf() < PopulationTuning.scaled_prob(0.10, dens):
 				return VegetationLibrary.tree_variant(SpeciesLibrary.Species.PALM, rng)   # palmiers en bord de mer
-			return _rock_variant(biome, rng) if rng.randf() < PopulationTuning.scaled_prob(0.05, dens) else -1
+			return _rock_variant(biome, rng) if rng.randf() < PopulationTuning.scaled_prob(0.09, dens) else -1
 		PlanetGenerator.Biome.ROCK:
-			if rng.randf() < PopulationTuning.scaled_prob(0.35, dens):
+			if rng.randf() < PopulationTuning.scaled_prob(0.48, dens):   # « davantage de rochers » (montagnes très rocheuses)
 				return _rock_variant(biome, rng)
 			if slope < TREE_MAX_SLOPE and rng.randf() < PopulationTuning.scaled_prob(0.05, dens):
 				return VegetationLibrary.tree_variant(SpeciesLibrary.Species.TWISTED, rng)  # arbres noueux clairsemés
@@ -149,14 +149,14 @@ static func _pick_tree_rock(biome: int, slope: float, humidity: float, rng: Rand
 			if slope < TREE_MAX_SLOPE and rng.randf() < PopulationTuning.scaled_prob(0.10 + 0.18 * humidity, dens):
 				var sp_plains := SpeciesLibrary.Species.PALM if humidity < 0.30 else SpeciesLibrary.Species.DECIDUOUS
 				return VegetationLibrary.tree_variant(sp_plains, rng)   # plaine sèche -> palmier ; sinon feuillu
-			if rng.randf() < PopulationTuning.scaled_prob(0.06, dens):
+			if rng.randf() < PopulationTuning.scaled_prob(0.11, dens):   # « davantage de rochers » épars en plaine
 				return _rock_variant(biome, rng)
 			return -1
 		PlanetGenerator.Biome.FOREST:
 			if slope < TREE_MAX_SLOPE and rng.randf() < PopulationTuning.scaled_prob(0.45, dens):
 				var sp_forest := SpeciesLibrary.Species.CONIFER if humidity > 0.6 else SpeciesLibrary.Species.DECIDUOUS
 				return VegetationLibrary.tree_variant(sp_forest, rng)   # forêt humide -> conifères ; sinon feuillus
-			if rng.randf() < PopulationTuning.scaled_prob(0.05, dens):
+			if rng.randf() < PopulationTuning.scaled_prob(0.09, dens):   # « davantage de rochers » sous couvert
 				return _rock_variant(biome, rng)
 			return -1
 	return -1
