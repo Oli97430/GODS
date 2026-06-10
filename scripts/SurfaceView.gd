@@ -449,7 +449,7 @@ func _process(delta: float) -> void:
 	if _harvest:
 		_harvest.update(delta, get_chunk_manager())
 	if _build:
-		_build.update(delta)
+		_build.update(delta, get_chunk_manager())
 	if _fishing:
 		_fishing.update(delta, get_chunk_manager())
 	AudioEngine.set_underwater(submerged)   # son étouffé sous l'eau (passe-bas Master, bypass hors de l'eau)

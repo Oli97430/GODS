@@ -19,8 +19,13 @@ const GRID := 1.0   # m : pas de grille des blocs cubiques (pose alignée + empi
 const DEDICATED_MESH := {
 	"table_wood": true, "chair_wood": true, "shelf_wood": true, "chest_wood": true, "barrel_wood": true,
 	"bed_wood": true, "column_stone": true, "statue_stone": true, "fence_wood": true, "ladder_wood": true,
-	"stairs_wood": true, "window_wood": true,
+	"stairs_wood": true, "window_wood": true, "raft_wood": true,
 }
+
+# Pièces POSÉES SUR L'EAU (pas sur le sol) : la visée croise le niveau de mer LOCAL courbé au lieu du
+# raycast physique terrain (l'eau n'a pas de collider). La pièce flotte, bas de boîte au ras de l'eau.
+const WATER_PIECES := {"raft_wood": true}
+const RAFT_MIN_DEPTH := 0.5   # m : le sol doit être sous la mer d'au moins ça au point visé (= vraie eau)
 
 const HL := preload("res://scripts/HarvestLibrary.gd")   # noms FR des matériaux (rendus dans les invites)
 
@@ -66,6 +71,9 @@ static var PIECES := {
 					  "emission": Color(1.0, 0.55, 0.20), "emission_energy": 2.8, "light": true},
 	"lantern_iron":  {"size": Vector3(0.3, 0.5, 0.3),   "color": Color(0.58, 0.60, 0.64), "metallic": 0.70, "roughness": 0.30,
 					  "emission": Color(0.9, 0.92, 1.0), "emission_energy": 1.8, "light": true},
+	# Radeau (CP-PÊCHE) : plateforme de rondins posée SUR L'EAU (cf. WATER_PIECES). Boîte de collision plate
+	# (bas au ras de la mer) → on marche dessus ; mesh dédié = rondins liés + traverses.
+	"raft_wood":     {"size": Vector3(2.6, 0.40, 2.6),  "color": Color(0.52, 0.38, 0.22), "metallic": 0.0,  "roughness": 0.85},
 }
 
 # Apparence visuelle par graine (couleur canopée + échelle adulte).
@@ -77,6 +85,7 @@ static var SEED_LOOK := {
 }
 
 var _player: Node = null
+var _chunks = null            # ChunkManager (poussé par SurfaceView.update) : ground_height_at pour valider l'eau
 var _active := false
 var _item := ""               # id de la pièce ("plank", "wall_stone"…) — vide si plant_mode
 var _plant_mode := false       # vrai si on plante (graine → arbuste)
@@ -200,7 +209,9 @@ func is_active() -> bool:
 	return _active
 
 # ─── Update (appelé chaque frame par SurfaceView) ───────────────────────────
-func update(delta: float) -> void:
+func update(delta: float, chunks = null) -> void:
+	if chunks != null:
+		_chunks = chunks   # ChunkManager : nécessaire pour valider la pose du radeau au-dessus de l'eau
 	# Faire pousser les arbustes plantés (indépendant du mode construction actif).
 	_grow_saplings(delta)
 	if _player == null:
@@ -221,8 +232,9 @@ func update(delta: float) -> void:
 		_yaw += ROT_SPEED * delta
 	if Input.is_key_pressed(KEY_E):
 		_yaw -= ROT_SPEED * delta
-	# Ghost : suit le raycast caméra. Pièces normales = posées au sol ; blocs cubiques = grille + empilage.
-	var hit := _aim_ground()
+	# Ghost : suit le raycast caméra. Pièces normales = posées au sol ; blocs cubiques = grille + empilage ;
+	# radeau (pièce d'EAU) = croisement du niveau de mer local (l'eau n'a pas de collider physique).
+	var hit := _aim_water_surf() if _is_water(_item) else _aim_ground()
 	if hit.valid:
 		_ghost.visible = true
 		if _plant_mode:
@@ -284,6 +296,32 @@ func _place_center(hit: Dictionary) -> Vector3:
 
 func _is_cube(item: String) -> bool:
 	return PIECES.has(item) and bool(PIECES[item].get("cube", false))
+
+func _is_water(item: String) -> bool:
+	return bool(WATER_PIECES.get(item, false))
+
+# Visée pour une pièce posée SUR L'EAU (radeau) : croisement du rayon caméra avec le niveau de mer LOCAL
+# courbé (= PlayerController.sea_level_at, même formule que le shader d'eau). Valide « eau » si le sol au
+# point visé est immergé d'au moins RAFT_MIN_DEPTH (sinon c'est la plage / la terre). Renvoie un hit au ras
+# de la mer ; _place_center (pièce non-cube) recentre la boîte en hauteur → bas du radeau au niveau de l'eau.
+func _aim_water_surf() -> Dictionary:
+	var cam = _player.get_active_camera() if _player.has_method("get_active_camera") else null
+	if cam == null or not _player.has_method("sea_level_at"):
+		return {"valid": false}
+	var from: Vector3 = cam.global_position
+	var dir: Vector3 = -cam.global_transform.basis.z
+	if dir.y > -0.05:
+		return {"valid": false}                                # il faut viser vers le bas (l'eau)
+	var sea0: float = _player.sea_level_at(from.x, from.z)
+	var t := (sea0 - from.y) / dir.y                           # dir.y < 0 garanti
+	if t <= 0.0 or t > AIM_RANGE * 2.0:
+		return {"valid": false}
+	var p := from + dir * t
+	p.y = _player.sea_level_at(p.x, p.z)                       # recale sur la mer courbée au point visé
+	if _chunks != null and _chunks.has_method("ground_height_at"):
+		if _chunks.ground_height_at(p) > p.y - RAFT_MIN_DEPTH:
+			return {"valid": false}                            # pas assez d'eau ici (plage / haut-fond)
+	return {"valid": true, "pos": p, "normal": Vector3.UP, "on_piece": false, "collider": null}
 
 # Centre de cellule de grille le plus proche sur un axe (cellules [k, k+1) centrées en k+0.5).
 func _grid1(v: float) -> float:
@@ -454,6 +492,7 @@ func _build_piece_mesh(id: String, p: Dictionary) -> Mesh:
 		"ladder_wood":  _mk_ladder(st, sz, g)
 		"stairs_wood":  _mk_stairs(st, sz, g)
 		"window_wood":  _mk_window(st, sz, g)
+		"raft_wood":    _mk_raft(st, sz, g)
 	return st.commit()
 
 # Ajoute une boîte (centre + dimensions) à la surface en cours.
@@ -551,6 +590,25 @@ func _mk_window(st: SurfaceTool, sz: Vector3, g: float) -> void:
 		_part_box(st, Vector3((sz.x * 0.5 - 0.1) * sx, 0, 0), Vector3(0.2, sz.y, sz.z))  # montants
 	_part_box(st, Vector3(0, 0, 0), Vector3(0.06, sz.y, sz.z))                           # meneau vertical
 	_part_box(st, Vector3(0, 0, 0), Vector3(sz.x, 0.06, sz.z))                           # traverse horizontale
+
+# Radeau : rondins jointifs (cylindres COUCHÉS le long de Z) + 2 traverses sur le dessus (cordage/poutres).
+# Les rondins remplissent la boîte englobante (bas au ras de l'eau, dessus = pont où l'on marche).
+func _mk_raft(st: SurfaceTool, sz: Vector3, _g: float) -> void:
+	var n := 5
+	var step := sz.x / float(n)
+	var lr := step * 0.5 * 0.96                                                          # rayon d'un rondin
+	var bz := Basis.from_euler(Vector3(PI * 0.5, 0.0, 0.0))                              # cylindre couché → axe Z
+	for i in n:
+		var lx := -sz.x * 0.5 + (float(i) + 0.5) * step
+		var c := CylinderMesh.new()
+		c.top_radius = lr
+		c.bottom_radius = lr
+		c.height = sz.z * 0.98
+		c.radial_segments = 10
+		c.rings = 0
+		st.append_from(c, 0, Transform3D(bz, Vector3(lx, 0.0, 0.0)))                     # rondin centré en Y
+	for cz in [-sz.z * 0.32, sz.z * 0.32]:                                              # traverses sur le pont
+		_part_box(st, Vector3(0.0, lr * 0.85, cz), Vector3(sz.x * 0.98, 0.08, 0.14))
 
 # ─── Mesh procédural d'arbuste (tronc cylindrique + canopée octaèdre) ───────
 func _make_sapling(canopy_color: Color) -> ArrayMesh:

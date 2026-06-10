@@ -90,6 +90,9 @@ static var RECIPES: Array = [
 
 	# --- Pêche (CP-PÊCHE) : la canne va à l'inventaire puis s'ÉQUIPE depuis le Sac / la montre ---
 	_r("fishing_rod",  "Canne à pêche",     CAT_FISHING, HarvestLibrary.KIND_WOOD, true, 4, false),
+	# Radeau : pièce POSABLE sur l'EAU (gagne le large) → plateforme stable d'où pêcher en eau profonde
+	# (prises plus grosses / plus rares). Posé/édité comme toute construction, mais visée = surface de mer.
+	_r("raft_wood",    "Radeau",            CAT_FISHING, HarvestLibrary.KIND_WOOD, true, 8, true),
 ]
 
 # Recettes d'une catégorie (ordre de la table).

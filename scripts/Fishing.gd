@@ -12,6 +12,8 @@ const BITE_MIN := 3.5         # s : délai mini avant la touche
 const BITE_MAX := 10.0        # s : délai maxi
 const BITE_WINDOW := 2.4      # s : fenêtre pour ferrer après la touche
 const WATER_DEPTH_MIN := 0.3  # m : le sol doit être sous la mer d'au moins ça (= vraie eau, pas la plage)
+const DEEP_WATER_DEPTH := 4.0 # m : au-delà de cette profondeur au bobber = EAU PROFONDE (large / radeau) →
+                              # table de prises enrichie (plus de grosses & rares, presque pas de déchet)
 
 enum { IDLE, WAITING, BITE }
 
@@ -130,22 +132,43 @@ func _aim_water(tip: Vector3):
 			return null
 	return p
 
-# Tire un poisson (pondéré) — quelques petites prises, parfois une grosse / rare, rarement un déchet.
+# Tire un poisson (pondéré). En eau PROFONDE (large / depuis un radeau) la table s'enrichit : bien plus de
+# grosses prises et de rares, presque pas de déchet — la récompense de gagner le large sur un radeau.
 func _catch() -> void:
 	var r := randf()
 	var fish := "fish_small"
-	if r < 0.05:
-		fish = "trinket_kelp"
-	elif r < 0.10:
-		fish = "fish_rare"
-	elif r < 0.32:
-		fish = "fish_large"
-	elif r < 0.62:
-		fish = "fish_medium"
+	if _is_deep_water():
+		if r < 0.02:
+			fish = "trinket_kelp"
+		elif r < 0.20:
+			fish = "fish_rare"
+		elif r < 0.55:
+			fish = "fish_large"
+		elif r < 0.85:
+			fish = "fish_medium"
+	else:
+		if r < 0.05:
+			fish = "trinket_kelp"
+		elif r < 0.10:
+			fish = "fish_rare"
+		elif r < 0.32:
+			fish = "fish_large"
+		elif r < 0.62:
+			fish = "fish_medium"
 	Inventory.add_resource(fish, 1)
 	AudioEngine.play_impact(_bob_pos, 0.5)
 	if _player.has_method("catch_feedback"):
 		_player.catch_feedback()
+
+# Eau profonde au bobber ? (profondeur sol↔mer ≥ DEEP_WATER_DEPTH). Repli prudent = false si on ne peut
+# pas sonder (pas de chunks / pas de sea_level_at) → table côtière par défaut, zéro régression.
+func _is_deep_water() -> bool:
+	if _chunks == null or not _chunks.has_method("ground_height_at"):
+		return false
+	if _player == null or not _player.has_method("sea_level_at"):
+		return false
+	var sea: float = _player.sea_level_at(_bob_pos.x, _bob_pos.z)
+	return sea - _chunks.ground_height_at(_bob_pos) >= DEEP_WATER_DEPTH
 
 # Oriente le fil (cylindre de hauteur 1) entre le bout de la canne `a` et le bobber `b`.
 func _update_line(a: Vector3, b: Vector3) -> void:
