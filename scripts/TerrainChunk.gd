@@ -29,6 +29,12 @@ var _veg_colliders: Array[CollisionShape3D] = []   # capsules d'arbres (rayon co
 var _veg_colliders_built := false
 var _impostor_mm: Dictionary = {}      # phase 24 : espèce:int -> MultiMeshInstance3D (1 impostor PAR espèce, anneau LOINTAIN)
 var _impostor_built := false
+var _impostor_base: Dictionary = {}    # récolte : variant:int -> offset de base de la variante dans le MM impostor de son espèce
+# Récolte : instances ABATTUES (clé = Vector2i(variant, index)). Survit aux reconstructions de MultiMesh
+# (mesh PLEIN *et* impostor) => un arbre coupé reste masqué à TOUTES les distances (plus de « fantôme »
+# d'impostor non éclairé). Vidé au recyclage du chunk (apply_vegetation).
+var _harvested: Dictionary = {}
+const HARVEST_HIDE_SCALE := 0.0008     # échelle ~0 d'une instance masquée (abattue)
 
 # --- Faune (phase 19) : créatures = nodes Creature enfants du chunk (despawn avec le chunk). ---
 var _fauna: Array[Creature] = []
@@ -47,6 +53,7 @@ var _clutter_lib: ClutterLibrary
 # dans l'anneau POI (main-thread, budgété) et libéré en sortie / au recyclage. ---
 var _poi_data: POIInstance   # descripteur léger (hors-thread) ou null si pas de POI ici
 var _poi_node: Node3D        # instance visuelle (dans l'anneau POI) ou null
+var _poi_harvested := false  # arbre géant abattu : masqué + l'anneau ne le reconstruit pas (repousse différée)
 
 func _init() -> void:
 	_mesh_instance = MeshInstance3D.new()
@@ -154,6 +161,8 @@ func apply_vegetation(seeds: Dictionary, lib: VegetationLibrary) -> void:
 		_impostor_mm[sp].multimesh.instance_count = 0
 		_impostor_mm[sp].visible = false
 	_impostor_built = false
+	_impostor_base.clear()
+	_harvested.clear()       # nouveau semis (chunk recyclé) => plus aucune instance abattue
 	_clear_veg_colliders()   # semis changé => colliders d'arbres obsolètes
 	_veg_seeds = seeds
 	_veg_lib = lib
@@ -202,11 +211,13 @@ func _build_impostor() -> void:
 	# Phase 24 : 1 impostor PAR ESPÈCE (silhouette/teinte propres). On regroupe les positions d'arbres
 	# par espèce (= variante / VARIANTS_PER) puis on remplit/recycle un MultiMesh dédié par espèce.
 	var by_species: Dictionary = {}
+	_impostor_base.clear()   # variant -> offset de base dans le MM de son espèce (pour masquer un arbre précis)
 	for v in _veg_seeds:
 		if VegetationLibrary.is_tree_variant(v):
 			var sp: int = v / VegetationLibrary.TREE_VARIANTS_PER
 			if not by_species.has(sp):
 				by_species[sp] = []
+			_impostor_base[v] = (by_species[sp] as Array).size()   # offset AVANT d'ajouter cette variante
 			by_species[sp].append_array(_veg_seeds[v])
 	for sp in by_species:
 		var transforms: Array = by_species[sp]
@@ -226,6 +237,10 @@ func _build_impostor() -> void:
 		mm.instance_count = transforms.size()
 		for i in transforms.size():
 			mm.set_instance_transform(i, transforms[i])
+	# Ré-applique le masquage des arbres ABATTUS sur leurs impostors (sinon un « fantôme » plat non
+	# éclairé réapparaît à distance après reconstruction de l'impostor).
+	for hk in _harvested:
+		_hide_impostor_instance(hk as Vector2i)
 
 # Construit (une fois par semis) le MultiMesh d'une variante depuis ses transforms.
 # Réutilise le MultiMeshInstance3D existant (pooling) : seul le contenu change.
@@ -252,7 +267,9 @@ func _build_mm(v: int) -> void:
 	var arr: Array = _veg_seeds[v]
 	mm.instance_count = arr.size()
 	for i in arr.size():
-		mm.set_instance_transform(i, arr[i])
+		# Un arbre abattu reste masqué même après reconstruction du MultiMesh (repousse via set_harvest_instance).
+		var xf: Transform3D = _hidden_instance_xf() if _harvested.has(Vector2i(v, i)) else (arr[i] as Transform3D)
+		mm.set_instance_transform(i, xf)
 		if tinted:
 			mm.set_instance_custom_data(i, _hue_tint(i))
 	_veg_built[v] = true
@@ -387,6 +404,8 @@ func poi_world_position() -> Vector3:
 # Instancie / libère le Node3D du POI selon l'anneau (piloté + budgété par ChunkManager). Construction
 # MAIN-THREAD via POILibrary.generate (rare => au plus quelques POI vivants). True si un travail a eu lieu.
 func set_poi_state(want: bool, lib: POILibrary) -> bool:
+	if _poi_harvested:
+		return false   # arbre géant abattu : ne pas (re)construire tant qu'il n'a pas repoussé
 	if want and _poi_node == null and has_poi():
 		_poi_node = lib.generate(_poi_data.category, _poi_data.seed_val)
 		add_child(_poi_node)
@@ -402,10 +421,18 @@ func clear_poi_node() -> void:
 		_poi_node.queue_free()
 		_poi_node = null
 
-# Libère le POI (node + descripteur) — chunk recyclé.
+# Récolte (CP) : masque (abattu) ou restaure l'arbre géant (POI). Tant que masqué, l'anneau POI ne le
+# reconstruit pas (set_poi_state respecte le drapeau) ; restauré, il sera réinstancié au prochain tick.
+func set_poi_harvested(hidden: bool) -> void:
+	_poi_harvested = hidden
+	if hidden:
+		clear_poi_node()
+
+# Libère le POI (node + descripteur) — chunk recyclé. Réinitialise l'état d'abattage (POI « repoussé »).
 func clear_poi() -> void:
 	clear_poi_node()
 	_poi_data = null
+	_poi_harvested = false
 
 # --- Faune (phase 19) ---
 
@@ -476,12 +503,18 @@ func set_tree_collision(active: bool) -> void:
 # --- Récolte (CP2) : empile dans `out` les arbres/rochers de CE chunk proches de `world_pos` (lecture seule).
 # Chaque entrée : {pos:Vector3 (MONDE), variant:int, kind:"tree"/"rock", index:int, coord:Vector2i}.
 func collect_harvestables_near(world_pos: Vector3, radius: float, coord: Vector2i, out: Array) -> void:
-	if _veg_seeds.is_empty():
-		return
 	var xf := global_transform
 	if xf.origin.distance_to(world_pos) > radius + 130.0:
 		return   # chunk trop loin (origine ≈ centre tangent) => aucun candidat possible
 	var r2 := radius * radius
+	# Arbre géant (POI) : abattable comme un arbre (tous les arbres peuvent être coupés). Indépendant
+	# des semis ; ignoré s'il a déjà été abattu (en repousse).
+	if not _poi_harvested and poi_category() == POILibrary.Category.GIANT_TREE:
+		var pwp := poi_world_position()
+		if pwp.distance_squared_to(world_pos) <= r2:
+			out.append({"pos": pwp, "kind": "tree", "poi": true, "coord": coord})
+	if _veg_seeds.is_empty():
+		return
 	for v in _veg_seeds:
 		var kind := ""
 		if VegetationLibrary.is_tree_variant(v):
@@ -492,24 +525,63 @@ func collect_harvestables_near(world_pos: Vector3, radius: float, coord: Vector2
 			continue
 		var arr: Array = _veg_seeds[v]
 		for i in arr.size():
+			if _harvested.has(Vector2i(v, i)):
+				continue   # déjà abattu (masqué, en repousse) => pas un candidat
 			var wp: Vector3 = xf * (arr[i] as Transform3D).origin
 			if wp.distance_squared_to(world_pos) <= r2:
 				out.append({"pos": wp, "variant": v, "kind": kind, "index": i, "coord": coord})
 
-# Récolte (CP3) : masque (échelle ~0) ou restaure une instance d'arbre/rocher dans le MultiMesh (abattage/repousse).
+# Transform d'une instance MASQUÉE (abattue) : échelle ~0 à l'origine (invisible).
+func _hidden_instance_xf() -> Transform3D:
+	return Transform3D(Basis().scaled(Vector3(HARVEST_HIDE_SCALE, HARVEST_HIDE_SCALE, HARVEST_HIDE_SCALE)), Vector3.ZERO)
+
+# Récolte (CP3) : masque (échelle ~0) ou restaure une instance d'arbre/rocher (abattage/repousse).
+# Masque/restaure À LA FOIS le mesh PLEIN *et* l'impostor lointain du même arbre, et mémorise l'état
+# dans _harvested pour qu'il SURVIVE aux reconstructions de MultiMesh (sinon un « fantôme » d'impostor
+# non éclairé réapparaît à distance, et l'arbre semble « non recoupable »).
 func set_harvest_instance(variant: int, index: int, hidden: bool) -> void:
-	var mmi: MultiMeshInstance3D = _veg_mm.get(variant)
-	if mmi == null or mmi.multimesh == null:
-		return
-	var mm: MultiMesh = mmi.multimesh
-	if index < 0 or index >= mm.instance_count:
-		return
+	var key := Vector2i(variant, index)
 	if hidden:
-		mm.set_instance_transform(index, Transform3D(Basis().scaled(Vector3(0.0008, 0.0008, 0.0008)), Vector3.ZERO))
-	elif _veg_seeds.has(variant):
-		var arr: Array = _veg_seeds[variant]
-		if index < arr.size():
-			mm.set_instance_transform(index, arr[index])
+		_harvested[key] = true
+	else:
+		_harvested.erase(key)
+	# Mesh plein.
+	var mmi: MultiMeshInstance3D = _veg_mm.get(variant)
+	if mmi != null and mmi.multimesh != null and index >= 0 and index < mmi.multimesh.instance_count:
+		if hidden:
+			mmi.multimesh.set_instance_transform(index, _hidden_instance_xf())
+		elif _veg_seeds.has(variant) and index < (_veg_seeds[variant] as Array).size():
+			mmi.multimesh.set_instance_transform(index, _veg_seeds[variant][index])
+	# Impostor lointain du même arbre (seulement pour les variantes d'arbre).
+	if VegetationLibrary.is_tree_variant(variant):
+		if hidden:
+			_hide_impostor_instance(key)
+		else:
+			_restore_impostor_instance(key)
+
+# Masque l'impostor d'un arbre abattu (clé = Vector2i(variant, index)). No-op si l'impostor n'est pas bâti.
+func _hide_impostor_instance(key: Vector2i) -> void:
+	var sp: int = key.x / VegetationLibrary.TREE_VARIANTS_PER
+	var imm: MultiMeshInstance3D = _impostor_mm.get(sp)
+	var base: int = int(_impostor_base.get(key.x, -1))
+	if imm == null or imm.multimesh == null or base < 0:
+		return
+	var ii := base + key.y
+	if ii >= 0 and ii < imm.multimesh.instance_count:
+		imm.multimesh.set_instance_transform(ii, _hidden_instance_xf())
+
+# Restaure l'impostor d'un arbre repoussé à sa transform d'origine.
+func _restore_impostor_instance(key: Vector2i) -> void:
+	var sp: int = key.x / VegetationLibrary.TREE_VARIANTS_PER
+	var imm: MultiMeshInstance3D = _impostor_mm.get(sp)
+	var base: int = int(_impostor_base.get(key.x, -1))
+	if imm == null or imm.multimesh == null or base < 0:
+		return
+	if not _veg_seeds.has(key.x) or key.y >= (_veg_seeds[key.x] as Array).size():
+		return
+	var ii := base + key.y
+	if ii >= 0 and ii < imm.multimesh.instance_count:
+		imm.multimesh.set_instance_transform(ii, _veg_seeds[key.x][key.y])
 
 func _build_veg_colliders() -> void:
 	_veg_colliders_built = true

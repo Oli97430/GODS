@@ -113,6 +113,9 @@ func _ready() -> void:
 	_build = preload("res://scripts/BuildManager.gd").new()
 	add_child(_build)
 	_build.setup(_player)
+	_harvest.set_build_manager(_build)   # abattage des arbres PLANTÉS (tous les arbres sont coupables)
+	# Arbres plantés = même matériau de vent/biolum PARTAGÉ que les arbres semés (éclairage cohérent).
+	_build.set_vegetation_material(_chunks.vegetation_library().wind_material())
 	# Atterrissage de puissance (Iron Man / Hulk) : gerbe de débris + onde de choc à l'impact d'une chute rapide.
 	_impact_burst = preload("res://scripts/ImpactBurst.gd").new()
 	add_child(_impact_burst)
@@ -211,6 +214,11 @@ func _setup_environment(atmo_color: Color) -> void:
 	# chargement (rayon visuel en chunks * taille) => le bord reste invisible, sans mur.
 	var edge := float(ChunkManager.VISUAL_RADIUS) * ChunkManager.CHUNK_SIZE
 	_surface_env.fog_density = 2.3 / maxf(edge, 1.0)
+	# ⚠️ fog_sky_affect vaut 1.0 PAR DÉFAUT en Godot 4 : le brouillard fond alors le CIEL ENTIER (à
+	# profondeur infinie) vers fog_light_color => le disque du soleil ET les nuages de sky_dynamic
+	# DISPARAISSENT, même en plein jour. On le met à 0 : le brouillard ne masque QUE le terrain lointain
+	# (bord de chargement) ; le ciel (soleil, nuages, étoiles, aurores) reste pleinement visible.
+	_surface_env.fog_sky_affect = 0.0
 	# Post-traitement d'immersion (tonemap AgX / glow / SSAO / SSIL) — partagé avec l'environnement espace.
 	ImmersionFX.apply(_surface_env)
 

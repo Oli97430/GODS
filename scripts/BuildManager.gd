@@ -9,6 +9,7 @@ extends Node3D
 const AIM_RANGE := 12.0     # m : portée de visée
 const ROT_SPEED := 2.5      # rad/s : rotation Q/E
 const GROW_TIME := 180.0    # s : temps de pousse d'un arbuste planté → arbre adulte
+const PLANTED_SCAN_CAP := 48   # plafond de candidats d'abattage retournés/scan (borne le coût même avec bcp d'arbres plantés)
 const GRIP_DELETE_TIME := 0.5   # s : maintien du grip VR (sur une pièce visée) pour SUPPRIMER (appui court = déplacer)
 const GRID := 1.0   # m : pas de grille des blocs cubiques (pose alignée + empilage face-à-face façon Minecraft)
 
@@ -55,8 +56,9 @@ var _piece_mats := {}          # item_id -> StandardMaterial3D
 
 # Plantation : mesh d'arbuste + matériau + suivi pousse des arbustes plantés.
 var _sapling_mesh: ArrayMesh
-var _sapling_mat: StandardMaterial3D
-var _saplings: Array = []      # [{node: MeshInstance3D, timer: float, max_scale: float}]
+var _sapling_mat: StandardMaterial3D   # repli si le matériau de végétation partagé n'est pas fourni
+var _veg_wind_mat: Material = null     # matériau de vent PARTAGÉ (= arbres semés) : balancement + biolum cohérents
+var _saplings: Array = []      # [{node: MeshInstance3D, timer: float, max_scale: float, seed_id, grown}]
 
 # Édition des constructions posées (viser → supprimer / déplacer).
 var _placed: Array = []        # [{body: StaticBody3D, mi: MeshInstance3D, item: String, yaw: float}]
@@ -289,6 +291,11 @@ func _place_piece(center: Vector3, yaw: float) -> void:
 	if Inventory.resource_count(_item) <= 0:
 		stop()
 
+# Matériau de végétation PARTAGÉ (depuis la VegetationLibrary du ChunkManager) : les arbres PLANTÉS
+# balancent au vent, suivent la météo et s'illuminent la nuit EXACTEMENT comme les arbres semés.
+func set_vegetation_material(mat: Material) -> void:
+	_veg_wind_mat = mat
+
 # ─── Plantation de graine ────────────────────────────────────────────────────
 func _place_sapling(ground: Vector3) -> void:
 	Inventory.consume_resource(_plant_seed, 1)
@@ -296,13 +303,14 @@ func _place_sapling(ground: Vector3) -> void:
 	var max_sc: float = float(look["scale"])
 	var node := MeshInstance3D.new()
 	node.mesh = _sapling_mesh
-	node.material_override = _sapling_mat
+	node.material_override = _veg_wind_mat if _veg_wind_mat != null else _sapling_mat
 	node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
 	add_child(node)
 	node.global_position = ground
 	node.rotation = Vector3(0.0, _yaw, 0.0)
 	node.scale = Vector3.ONE * 0.18   # commence petit
-	_saplings.append({"node": node, "timer": 0.0, "max_scale": max_sc})
+	# seed_id : retenu pour l'ABATTAGE (espèce → rendement bois) ; grown : adulte (collision posée).
+	_saplings.append({"node": node, "timer": 0.0, "max_scale": max_sc, "seed_id": _plant_seed, "grown": false})
 	if _player.has_method("harvest_feedback"):
 		_player.harvest_feedback()
 	if Inventory.resource_count(_plant_seed) <= 0:
@@ -316,12 +324,15 @@ func _grow_saplings(delta: float) -> void:
 		var n: MeshInstance3D = s["node"] as MeshInstance3D
 		if not is_instance_valid(n):
 			_saplings.remove_at(i); continue
+		if bool(s.get("grown", false)):
+			i += 1; continue   # arbre adulte : croissance finie, mais TOUJOURS suivi (abattable)
 		s["timer"] = float(s["timer"]) + delta
 		var t := clampf(float(s["timer"]) / GROW_TIME, 0.0, 1.0)
 		var sc: float = lerpf(0.18, float(s["max_scale"]), t)
 		n.scale = Vector3.ONE * sc
 		if t >= 1.0:
-			# Arbre adulte : ajouter une collision cylindrique (tronc).
+			# Arbre adulte : ajouter une collision cylindrique (tronc), UNE fois. On le GARDE dans
+			# _saplings (désormais récoltable comme tout arbre — abattage par HarvestManager).
 			var body := StaticBody3D.new()
 			var col := CollisionShape3D.new()
 			var cyl := CylinderShape3D.new()
@@ -331,8 +342,55 @@ func _grow_saplings(delta: float) -> void:
 			body.add_child(col)
 			n.add_child(body)
 			body.position = Vector3(0.0, cyl.height * 0.5, 0.0)
-			_saplings.remove_at(i); continue
+			s["grown"] = true
 		i += 1
+
+# ─── Récolte : arbres PLANTÉS abattables (tous les arbres peuvent être coupés) ──
+# Les arbres issus de graines plantées par le joueur sont des arbres à part entière : HarvestManager
+# les cible et les abat exactement comme les arbres semés (rendement bois selon l'espèce de la graine).
+
+# Arbres plantés proches d'une position MONDE (pour le ciblage d'abattage). Lecture seule.
+# Retourne [{ "node": Node3D, "pos": Vector3 (MONDE, pied), "species": int }].
+func planted_trees_near(world_pos: Vector3, radius: float) -> Array:
+	var out: Array = []
+	var r2 := radius * radius
+	for s in _saplings:
+		if out.size() >= PLANTED_SCAN_CAP:
+			break   # plafond : HarvestManager ne vise que le plus proche => inutile d'en collecter plus
+		if not bool(s.get("grown", false)):
+			continue   # un semis encore en croissance n'est PAS un arbre abattable (pas de bois plein)
+		var n: MeshInstance3D = s.get("node") as MeshInstance3D
+		if not is_instance_valid(n):
+			continue
+		var p := n.global_position
+		if p.distance_squared_to(world_pos) <= r2:
+			out.append({"node": n, "pos": p, "species": _species_of_seed(String(s.get("seed_id", "")))})
+	return out
+
+# Abat un arbre planté (par node) : le retire du suivi + libère le node, renvoie le rendement bois
+# { "wood": id, "qty": int, "seed": id } (ou {} si introuvable).
+func chop_planted_tree(node: Node3D) -> Dictionary:
+	for i in _saplings.size():
+		if _saplings[i].get("node") == node:
+			var sp := _species_of_seed(String(_saplings[i].get("seed_id", "")))
+			var yld := HL.species_yield(sp)
+			_saplings.remove_at(i)
+			if is_instance_valid(node):
+				node.queue_free()
+			return {
+				"wood": String(yld.get("wood", "")),
+				"qty": randi_range(HL.WOOD_PER_TREE_MIN, HL.WOOD_PER_TREE_MAX),
+				"seed": String(yld.get("seed", "")),
+			}
+	return {}
+
+# Espèce (SpeciesLibrary.Species) correspondant à une graine plantable (repli = feuillu).
+static func _species_of_seed(seed_id: String) -> int:
+	match seed_id:
+		"seed_palm": return SpeciesLibrary.Species.PALM
+		"seed_conifer": return SpeciesLibrary.Species.CONIFER
+		"seed_twisted": return SpeciesLibrary.Species.TWISTED
+	return SpeciesLibrary.Species.DECIDUOUS
 
 # ─── Mesh procédural d'arbuste (tronc cylindrique + canopée octaèdre) ───────
 func _make_sapling(canopy_color: Color) -> ArrayMesh:

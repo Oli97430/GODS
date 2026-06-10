@@ -5,8 +5,11 @@ extends Node3D
 ## planète on observe la surface, il n'y a pas de cible à sélectionner). La
 ## transform de ce node est manipulée par NavigationController à l'échelle PLANET.
 
+const PLANET_SHADER := preload("res://shaders/planet_orbit.gdshader")
+
 var selected_index: int = -1  # aucune cible sélectionnable à cette échelle
 var _seed_local := 0           # phase 23 : seed courant (pour rebâtir le mesh érodé quand la FlowMap arrive)
+var _planet_mat: ShaderMaterial   # matériau de surface orbital enrichi (relief/terminateur/limbe)
 
 @onready var _planet: MeshInstance3D = $Planet
 @onready var _sun: DirectionalLight3D = $SunLight
@@ -42,11 +45,13 @@ func build(seed_local: int) -> void:
 	# Météo déterministe de la planète (couverture nuageuse variable vue d'orbite).
 	WeatherSystem.configure_planet(seed_local)
 	_planet.mesh = PlanetGenerator.generate(seed_local)
-	var mat := StandardMaterial3D.new()
-	mat.vertex_color_use_as_albedo = true   # biomes via couleurs de vertices
-	mat.roughness = 0.95
-	mat.metallic = 0.0
-	_planet.material_override = mat
+	# Surface ENRICHIE : shader orbital maison (relief de détail, terminateur doux, halo de limbe,
+	# côté nuit teinté). Albédo = couleurs de vertices (biomes) => déterminisme intact.
+	_planet_mat = ShaderMaterial.new()
+	_planet_mat.shader = PLANET_SHADER
+	# Teinte d'atmosphère du seed (cohérente avec les couches de ciel) pour la diffusion au limbe.
+	_planet_mat.set_shader_parameter("atmo_color", PlanetAtmosphere.atmosphere_color_for(seed_local))
+	_planet.material_override = _planet_mat
 	_planet.rotation = Vector3.ZERO
 	# Océan orbital (même seed) : niveau de mer + teinte partagés avec la surface.
 	_planet_ocean.setup(seed_local, PlanetGenerator.DEFAULT_RADIUS, _sun)
@@ -102,6 +107,9 @@ func _process(_delta: float) -> void:
 		return
 	# Rotation pilotée par la source de temps unique (jour/nuit synchrone avec le sol).
 	_planet.basis = TimeOfDay.spin_basis()
+	# Direction VERS le soleil (monde) -> shader de surface (terminateur, limbe, spéculaire).
+	if _planet_mat:
+		_planet_mat.set_shader_parameter("sun_direction", _sun.global_transform.basis.z)
 	# Lunes en orbite autour du centre de la planète (origine locale), même horloge.
 	for mr in _moons:
 		mr.update_state(TimeOfDay.simulated_seconds, Vector3.ZERO)

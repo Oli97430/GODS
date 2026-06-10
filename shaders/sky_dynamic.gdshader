@@ -15,8 +15,8 @@ uniform vec3 night_zenith : source_color = vec3(0.010, 0.020, 0.055);
 uniform vec3 night_horizon : source_color = vec3(0.035, 0.050, 0.115);
 uniform vec3 ground_color : source_color = vec3(0.020, 0.020, 0.030);
 uniform vec3 sun_color : source_color = vec3(1.0, 0.95, 0.85);
-uniform float sun_size = 0.025;   // 1 - cos(rayon angulaire) du disque
-uniform float sun_glow = 9.0;     // serrage du halo autour du disque
+uniform float sun_size = 0.032;   // 1 - cos(rayon angulaire) du disque (un peu plus gros = soleil net)
+uniform float sun_glow = 8.0;     // serrage du halo autour du disque (plus bas = halo plus large)
 uniform float cloud_coverage = 0.0;   // météo (phase 13) : 0 dégagé -> 1 couvert
 uniform float lightning = 0.0;        // météo : flash d'éclair (0..1) blanchit brièvement le ciel
 uniform float cloud_speed = 0.006;    // dérive des nuages (vitesse)
@@ -101,9 +101,9 @@ vec3 cloud_drift() { return vec3(TIME * cloud_speed * 8.0, 0.0, TIME * cloud_spe
 float cloud_shape(float n, float y) {
 	float h = clamp((y - cloud_base) / max(cloud_top - cloud_base, 1.0), 0.0, 1.0);
 	float grad = smoothstep(0.0, 0.22, h) * (1.0 - smoothstep(0.55, 1.0, h));
-	// Seuil HAUT par temps clair => nuages DISTINCTS avec ciel bleu entre eux (pas un couvert plein) ;
-	// descend si couvert (météo) jusqu'à un vrai ciel bouché. (Validé par réplique CPU du raymarch.)
-	float cov = mix(0.54, 0.30, cloud_coverage);
+	// Seuil par temps clair => nuages cumulus DISTINCTS avec ciel bleu entre eux (toujours quelques nuages,
+	// jamais un ciel vide) ; descend si couvert (météo) jusqu'à un vrai ciel bouché.
+	float cov = mix(0.46, 0.26, cloud_coverage);
 	return smoothstep(cov, cov + 0.20, n) * grad;
 }
 float cloud_dense_hi(vec3 wp) { return cloud_shape(fbm3_hi(wp * cloud_scale + cloud_drift()), wp.y); }
@@ -140,11 +140,13 @@ void sky() {
 	vec3 overcast = mix(col, vec3(lum), 0.7) * 0.66;
 	col = mix(col, overcast, cloud_coverage * 0.55);
 
-	// Disque + halo du soleil (visibles surtout le jour).
+	// Disque + halo du soleil : disque vif + grand halo lumineux => soleil bien visible (jour, et au ras de
+	// l'horizon au lever/coucher où max(day,..) maintient sa présence).
 	float dsun = dot(EYEDIR, normalize(sun_dir));
 	float disk = smoothstep(1.0 - sun_size, 1.0 - sun_size * 0.4, dsun);
 	float glow = pow(max(dsun, 0.0), sun_glow);
-	col += sun_color * (disk * 7.0 + glow * 0.5) * max(day, 0.15) * (1.0 - cloud_coverage * 0.6);
+	float halo = pow(max(dsun, 0.0), 2.2);   // grand halo doux autour du soleil
+	col += sun_color * (disk * 10.0 + glow * 1.1 + halo * 0.25) * max(day, 0.18) * (1.0 - cloud_coverage * 0.55);
 
 	// --- NUAGES VOLUMÉTRIQUES (projection DIRECTIONNELLE, sans POSITION — robuste en shader de ciel) ---
 	// On échantillonne le bruit 3D le long de EYEDIR à des HAUTEURS de couche successives (origine caméra
@@ -158,7 +160,7 @@ void sky() {
 		float seg = dy / EYEDIR.y;                   // longueur de segment le long du rayon (épaisseur optique)
 		vec3 sdir = normalize(sun_dir);
 		vec3 sun_lit = sun_color * (0.6 + 0.7 * day);
-		vec3 amb = mix(vec3(0.22, 0.25, 0.32), col, 0.4) * (0.35 + 0.65 * day);
+		vec3 amb = mix(vec3(0.22, 0.25, 0.32), col, 0.4) * (0.46 + 0.54 * day);   // nuages encore visibles la nuit
 		float trans = 1.0;
 		vec3 acc = vec3(0.0);
 		for (int i = 0; i < STEPS; i++) {

@@ -297,6 +297,19 @@ func set_veg_instance_hidden(coord: Vector2i, variant: int, index: int, hidden: 
 	if is_instance_valid(chunk) and chunk.has_method("set_harvest_instance"):
 		chunk.set_harvest_instance(variant, index, hidden)
 
+# Récolte (arbre géant) : masque (abattu) / restaure (repousse) le POI d'un chunk actif.
+func set_poi_harvested(coord: Vector2i, hidden: bool) -> void:
+	var chunk: TerrainChunk = _active.get(coord)
+	if is_instance_valid(chunk) and chunk.has_method("set_poi_harvested"):
+		chunk.set_poi_harvested(hidden)
+
+# Bibliothèque de végétation PARTAGÉE (créée à la demande) — pour que les arbres PLANTÉS réutilisent
+# le même matériau de vent/biolum que les arbres semés (cohérence d'éclairage).
+func vegetation_library() -> VegetationLibrary:
+	if _veg_lib == null:
+		_veg_lib = VegetationLibrary.new()
+	return _veg_lib
+
 # Nom du POI nommé le plus proche d'une position MONDE dans un rayon donné (mètres) — pour le
 # WristComputer. { name:String ("" si aucun), distance:float }. Ignore les POI mineurs (anonymes).
 func nearest_poi_name(world_pos: Vector3, radius: float) -> Dictionary:

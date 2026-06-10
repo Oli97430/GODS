@@ -13,7 +13,7 @@
 ### Quatre échelles sans couture
 - **Galaxie** — 400 systèmes générés depuis un seed global, navigables comme un nuage de points 3D. Choisis un système par seed ou sélectionne un des 16 préréglages nommés depuis le **menu de départ** avant de plonger.
 - **Système** — étoile + planètes placées procéduralement sur des orbites vivantes (une seule horloge simulée).
-- **Planète (orbite)** — sphère planétaire érodée avec océans, rivières, lacs, nuages, atmosphère, lunes & anneaux.
+- **Planète (orbite)** — sphère planétaire érodée avec **relief de surface ombré, terminateur jour/nuit doux et halo atmosphérique au limbe**, océans scintillants, rivières, lacs, nuages, atmosphère, lunes & anneaux.
 - **Surface** — terrain streamé par chunks, exploré à pied, avec rebasage à origine flottante pour la précision.
 
 ### Un monde vivant
@@ -37,7 +37,7 @@
 ### Survie & craft
 Tout le craft et la construction est **entièrement optionnel** — l'explorateur contemplatif est intact si tu l'ignores.
 
-- **Récolte** : cueille des fruits, abats des arbres (geste hache), mine des rochers (geste pioche) pour obtenir pierre, fer, cuivre, or et cristaux.
+- **Récolte** : cueille des fruits, **abats n'importe quel arbre** (geste hache) — sauvage, ceux que tu as plantés (une fois adultes) et les **arbres géants remarquables** — mine des rochers (geste pioche) pour obtenir pierre, fer, cuivre, or et cristaux.
 - **Fonte** des minerais en lingots dans l'onglet **Fonderie** de l'ordinateur de poignet.
 - **Fabrication** de pièces structurelles : planches, murs de pierre, toits de chaume, piliers en fer, portes en cuivre, lanternes dorées.
 - **Construction** : pose les pièces avec un aperçu fantôme, accroche-toi au terrain et empile-les pour construire abris et tours.

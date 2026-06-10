@@ -66,6 +66,11 @@ func material_for(variant: int) -> Material:
 		V_ROCK_CRYSTAL: return _crystal_mat
 	return _rock_mat if variant in ROCK_VARIANTS else _wind_mat
 
+# Matériau de vent PARTAGÉ (arbres + herbe) : vent piloté par la météo + bioluminescence globale.
+# Réutilisé par les arbres PLANTÉS (BuildManager) pour qu'ils balancent/s'éclairent comme les arbres semés.
+func wind_material() -> Material:
+	return _wind_mat
+
 # Active/désactive le vent (wind_strength = 0 => végétation statique). Désactivable au besoin.
 func set_wind_enabled(enabled: bool) -> void:
 	_wind_mat.set_shader_parameter("wind_strength", WIND_STRENGTH if enabled else 0.0)

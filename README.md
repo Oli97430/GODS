@@ -13,7 +13,7 @@
 ### Four seamless scales
 - **Galaxy** — 400 star systems generated from a global seed, navigable as a 3D point cloud. Choose a system by seed or pick one of 16 named presets from the **start menu** before diving in.
 - **System** — star + procedurally placed planets on live orbits (driven by a single simulated clock).
-- **Planet (orbit)** — eroded planet sphere with oceans, rivers, lakes, clouds, atmosphere, moons & rings.
+- **Planet (orbit)** — eroded planet sphere with **surface relief shading, a soft day/night terminator and an atmospheric limb glow**, shimmering oceans, rivers, lakes, clouds, atmosphere, moons & rings.
 - **Surface** — streamed, chunked terrain you explore on foot, with floating-origin rebasing for precision.
 
 ### A living world
@@ -37,7 +37,7 @@
 ### Survival & crafting
 All crafting and building is **fully optional** — the contemplative explorer is intact if you ignore it.
 
-- **Harvest**: pick fruits, chop trees (axe swing), mine rocks (pickaxe swing) for stone, iron, copper, gold and gem crystals.
+- **Harvest**: pick fruits, **fell any tree** (axe swing) — wild, the ones you planted (once grown), and the **giant landmark trees** — mine rocks (pickaxe swing) for stone, iron, copper, gold and gem crystals.
 - **Smelt** ore into ingots in the **Foundry** tab of the wrist computer.
 - **Craft** structural pieces: planks, stone walls, thatch roofs, iron pillars, copper doors, golden lanterns.
 - **Build**: place pieces with a ghost preview, snap to terrain, and stack them to construct shelters and towers.

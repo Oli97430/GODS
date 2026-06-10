@@ -13,6 +13,11 @@ const HL := preload("res://scripts/HarvestLibrary.gd")
 
 const SCAN_CD := 0.25       # s : période de re-scan des récoltables proches
 const SCAN_RADIUS := 9.0    # m : rayon de recherche
+# Arbre géant (POI) : un colosse => beaucoup de coups, gros rendement, portée d'abattage élargie (tronc large).
+const GIANT_FELL_HITS := 14
+const GIANT_WOOD_MIN := 18
+const GIANT_WOOD_MAX := 30
+const GIANT_REACH := 5.0    # m : portée d'abattage de l'arbre géant (le tronc est massif)
 const MAX_TREES := 10       # arbres fruitiers suivis (fruits visibles)
 const MAX_FRUIT := 30       # plafond de fruits visibles (taille du pool)
 const FRUIT_H := 1.55       # m : hauteur (atteignable) des fruits autour du tronc
@@ -20,6 +25,7 @@ const FRUIT_R := 0.6        # m : rayon d'accroche
 const BASE_SCALE := 0.14    # échelle de base d'un fruit
 
 var _player: Node = null       # PlayerController
+var _build: Node = null        # BuildManager — arbres PLANTÉS par le joueur (abattables aussi)
 var _cm: Node = null           # ChunkManager (passé chaque frame)
 var _scan_t := 0.0
 var _cands: Array = []         # récoltables du dernier scan : { pos, variant, kind, index, coord }
@@ -47,6 +53,10 @@ var _msg_t := 0.0
 
 func setup(player: Node) -> void:
 	_player = player
+
+# Réf. au BuildManager : permet d'abattre les arbres PLANTÉS (graines du joueur), pas seulement les semés.
+func set_build_manager(build: Node) -> void:
+	_build = build
 
 func _ready() -> void:
 	top_level = true
@@ -108,10 +118,14 @@ func _rescan() -> void:
 		return
 	var pp: Vector3 = (_player as Node3D).global_position
 	_cands = _cm.harvestables_near(pp, SCAN_RADIUS)
-	# Fruits (visuels) : sur les MAX_TREES arbres les plus proches.
+	# Arbres PLANTÉS par le joueur : ajoutés aux candidats d'abattage (mêmes outils, même geste).
+	if _build != null and _build.has_method("planted_trees_near"):
+		for pt in _build.planted_trees_near(pp, SCAN_RADIUS):
+			_cands.append({"pos": pt.pos, "kind": "tree", "planted": true, "node": pt.node, "species": int(pt.species)})
+	# Fruits (visuels) : seulement sur les arbres SEMÉS proches (variante connue) — pas les plantés ni l'arbre géant.
 	var trees: Array = []
 	for h in _cands:
-		if String(h.get("kind", "")) == "tree":
+		if String(h.get("kind", "")) == "tree" and not h.get("planted", false) and not h.get("poi", false):
 			trees.append(h)
 	trees.sort_custom(func(a, b): return (a.pos as Vector3).distance_squared_to(pp) < (b.pos as Vector3).distance_squared_to(pp))
 	if trees.size() > MAX_TREES:
@@ -193,14 +207,16 @@ func _pick(i: int) -> void:
 func _update_tool(delta: float) -> void:
 	_swing_cd = maxf(_swing_cd - delta, 0.0)
 	var hp: Vector3 = _player.tool_hand_point() if _player.has_method("tool_hand_point") else (_player as Node3D).global_position
-	# Cible = ARBRE ou ROCHER le plus proche de la main, dans la portée, non épuisé (l'outil fait les deux).
+	# Cible = ARBRE ou ROCHER le plus proche de la main, dans SA portée, non épuisé (l'outil fait les deux).
+	# L'arbre géant (POI) a une portée élargie (tronc massif → on l'atteint d'un peu plus loin).
 	var best := {}
-	var best_d := HL.TOOL_REACH * HL.TOOL_REACH
+	var best_d := INF
 	for h in _cands:
 		if _depleted.has(_id_of(h)):
 			continue
+		var reach: float = GIANT_REACH if h.get("poi", false) else HL.TOOL_REACH
 		var d: float = (h.pos as Vector3).distance_squared_to(hp)
-		if d < best_d:
+		if d <= reach * reach and d < best_d:
 			best_d = d
 			best = h
 	_tool_target = best
@@ -229,7 +245,11 @@ func _update_tool(delta: float) -> void:
 	_have_prev_hand = true
 
 func _need_for(h: Dictionary) -> int:
+	if h.get("poi", false):
+		return GIANT_FELL_HITS                       # arbre géant : colosse
 	if String(h.get("kind", "")) == "tree":
+		if h.get("planted", false):
+			return int(HL.species_yield(int(h.get("species", 0))).get("fell_hits", 5))
 		var species := int(h.variant) / VegetationLibrary.TREE_VARIANTS_PER
 		return int(HL.species_yield(species).get("fell_hits", 5))
 	return int(HL.rock_yield_for(int(h.variant)).get("mine_hits", 5))
@@ -251,6 +271,14 @@ func _strike(h: Dictionary) -> void:
 
 func _fell(h: Dictionary) -> void:
 	var id := _id_of(h)
+	# Arbre PLANTÉ par le joueur : abattu via BuildManager (retiré définitivement, pas de repousse).
+	if h.get("planted", false):
+		_fell_planted(h)
+		return
+	# Arbre GÉANT (POI) : gros rendement, masqué + repousse (réutilise le timer de repousse d'arbre).
+	if h.get("poi", false):
+		_fell_giant(h, id)
+		return
 	if String(h.get("kind", "")) == "tree":
 		var species := int(h.variant) / VegetationLibrary.TREE_VARIANTS_PER
 		var yld := HL.species_yield(species)
@@ -280,11 +308,45 @@ func _fell(h: Dictionary) -> void:
 	_tool_target = {}
 	_set_chunk_hidden(h.coord, int(h.variant), int(h.index), true)   # l'instance disparaît
 
+# Abat un arbre PLANTÉ par le joueur : BuildManager retire le node et renvoie le rendement bois.
+# Définitif (pas de repousse) — le joueur replante avec la graine récupérée.
+func _fell_planted(h: Dictionary) -> void:
+	if _build == null or not _build.has_method("chop_planted_tree"):
+		return
+	var y: Dictionary = _build.chop_planted_tree(h.get("node"))
+	var wood := String(y.get("wood", ""))
+	var qty := int(y.get("qty", 0))
+	if wood != "" and qty > 0:
+		Inventory.add_resource(wood, qty)
+	var seed := String(y.get("seed", ""))
+	if seed != "":
+		Inventory.add_resource(seed, 1)   # bonus : une graine à replanter
+	_msg = "+ %d %s" % [qty, HL.item_name(wood)]
+	_msg_t = 1.8
+	_tool_target = {}
+
+# Abat l'arbre GÉANT (POI) : gros rendement de bois + graines ; masqué via le chunk + repousse (REGROW_TREE).
+func _fell_giant(h: Dictionary, id: String) -> void:
+	var qty := randi_range(GIANT_WOOD_MIN, GIANT_WOOD_MAX)
+	Inventory.add_resource("wood_oak", qty)        # colosse feuillu => bois de pommier (essence du feuillu)
+	Inventory.add_resource("seed_deciduous", 2)    # 2 graines (c'est un géant)
+	_msg = "+ %d %s" % [qty, HL.item_name("wood_oak")]
+	_msg_t = 2.2
+	_tool_target = {}
+	_depleted[id] = {"rt": HL.REGROW_TREE, "poi": true, "coord": h.coord}
+	_set_poi_hidden(h.coord, true)                 # le POI disparaît (l'anneau ne le reconstruit pas)
+
 # --- Épuisement / repousse ---
 func _apply_depletion() -> void:
 	# Ré-applique le masquage des instances épuisées présentes dans le scan (après rebuild de chunk).
 	for h in _cands:
-		if _depleted.has(_id_of(h)):
+		if not _depleted.has(_id_of(h)):
+			continue
+		if h.get("poi", false):
+			_set_poi_hidden(h.coord, true)           # arbre géant abattu : reste masqué
+		elif not h.get("planted", false):
+			# Les arbres PLANTÉS ne sont jamais dans _depleted (retrait définitif côté BuildManager) :
+			# seuls les arbres/rochers SEMÉS (chunk) repoussent => masquage MultiMesh.
 			_set_chunk_hidden(h.coord, int(h.variant), int(h.index), true)
 
 func _tick_depletion(delta: float) -> void:
@@ -296,12 +358,20 @@ func _tick_depletion(delta: float) -> void:
 			done.append(id)
 	for id in done:
 		var e = _depleted[id]
-		_set_chunk_hidden(e.coord, int(e.variant), int(e.index), false)   # repousse : l'instance réapparaît
+		if e.get("poi", false):
+			_set_poi_hidden(e.coord, false)   # repousse de l'arbre géant : l'anneau le reconstruit
+		else:
+			_set_chunk_hidden(e.coord, int(e.variant), int(e.index), false)   # repousse : l'instance réapparaît
 		_depleted.erase(id)
 
 func _set_chunk_hidden(coord, variant: int, index: int, hidden: bool) -> void:
 	if _cm != null and _cm.has_method("set_veg_instance_hidden"):
 		_cm.set_veg_instance_hidden(coord, variant, index, hidden)
+
+# Masque/restaure l'arbre géant (POI) abattu d'un chunk (l'anneau ne le reconstruit pas tant que masqué).
+func _set_poi_hidden(coord, hidden: bool) -> void:
+	if _cm != null and _cm.has_method("set_poi_harvested"):
+		_cm.set_poi_harvested(coord, hidden)
 
 func _tick_regrow(delta: float) -> void:
 	for id in _state:
@@ -357,6 +427,12 @@ func _recycle(mi: MeshInstance3D) -> void:
 
 # Id stable d'un récoltable (invariant au rebase et au rechargement de chunk).
 func _id_of(h: Dictionary) -> String:
+	if h.get("planted", false):
+		var n = h.get("node")
+		return "planted:%d" % (n.get_instance_id() if is_instance_valid(n) else 0)
+	if h.get("poi", false):
+		var cp: Vector2i = h.get("coord", Vector2i.ZERO)
+		return "poi:%d,%d" % [cp.x, cp.y]
 	var c: Vector2i = h.get("coord", Vector2i.ZERO)
 	return "%d,%d,%d,%d" % [c.x, c.y, int(h.variant), int(h.index)]
 

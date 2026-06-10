@@ -24,6 +24,8 @@ func setup(seed_local: int, _planet_radius: float, sun: DirectionalLight3D) -> v
 	_mat = ShaderMaterial.new()
 	_mat.shader = WATER_SHADER
 	_mat.set_shader_parameter("water_color", PlanetGenerator.water_color(seed_local))
+	# Teinte de ciel reflétée au limbe (cohérente avec l'atmosphère du même seed).
+	_mat.set_shader_parameter("atmo_color", PlanetAtmosphere.atmosphere_color_for(seed_local))
 	material_override = _mat
 
 func _process(_dt: float) -> void:
