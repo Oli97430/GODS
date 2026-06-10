@@ -1,0 +1,785 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GODS TERMINAL — SEED EXPLORER</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=VT323&family=Share+Tech+Mono:wght@400&display=swap" rel="stylesheet">
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:      #030200;
+      --amber:   #e8a020;
+      --amber-hi:#ffcb5a;
+      --amber-lo:#7a5010;
+      --amber-xs:#321e06;
+      --red:     #e84020;
+      --ok:      #3ada60;
+      --glow:    0 0 5px rgba(232,160,32,.7), 0 0 16px rgba(232,160,32,.25);
+      --pb:      1px solid #3a2600;
+    }
+    html, body { height: 100%; background: var(--bg); }
+    body {
+      color: var(--amber);
+      font-family: 'Share Tech Mono', 'Courier New', monospace;
+      font-size: 14px;
+      line-height: 1.6;
+      overflow-x: hidden;
+    }
+    /* Scanlines */
+    body::before {
+      content: '';
+      position: fixed; inset: 0;
+      background: repeating-linear-gradient(0deg,
+        rgba(0,0,0,.16) 0px, rgba(0,0,0,.16) 1px,
+        transparent 1px, transparent 4px);
+      pointer-events: none; z-index: 9000;
+    }
+    /* Vignette */
+    body::after {
+      content: '';
+      position: fixed; inset: 0;
+      background: radial-gradient(ellipse 90% 90% at 50% 50%,
+        transparent 50%, rgba(0,0,0,.65) 100%);
+      pointer-events: none; z-index: 8999;
+    }
+    @keyframes flicker {
+      0%,100%{opacity:1} 92%{opacity:1} 93%{opacity:.92} 94%{opacity:1} 97%{opacity:.95} 98%{opacity:1}
+    }
+    #app { animation: flicker 7s ease-in-out infinite; }
+
+    /* Boot */
+    #boot {
+      position: fixed; inset: 0;
+      background: #000; z-index: 7000;
+      padding: 48px 60px; overflow: hidden;
+      font-family: 'VT323', monospace; font-size: 20px; line-height: 1.5;
+    }
+    #boot .bl { display: block; color: var(--amber); opacity: 0; animation: bli .08s ease forwards; }
+    @keyframes bli { to { opacity: 1; } }
+    #boot .ok  { color: var(--ok); }
+    #boot .dim { color: var(--amber-lo); }
+
+    /* App */
+    #app { display: none; min-height: 100vh; padding: 20px 24px 24px; }
+
+    /* Header */
+    .hdr {
+      display: grid; grid-template-columns: auto 1fr auto;
+      align-items: center; gap: 20px;
+      padding-bottom: 12px; border-bottom: var(--pb); margin-bottom: 16px;
+    }
+    .hdr-logo {
+      font-family: 'VT323', monospace; font-size: 36px;
+      letter-spacing: .15em; color: var(--amber-hi); text-shadow: var(--glow);
+    }
+    .hdr-title { font-size: 12px; letter-spacing: .2em; color: var(--amber-lo); text-transform: uppercase; }
+    .hdr-right { text-align: right; font-size: 12px; color: var(--amber-lo); line-height: 1.8; }
+    #clock { color: var(--amber); font-family: 'VT323', monospace; font-size: 20px; }
+
+    /* Seed input */
+    .seed-bar { display: flex; align-items: stretch; gap: 0; margin-bottom: 0; border: var(--pb); }
+    .seed-lbl {
+      padding: 0 16px; display: flex; align-items: center;
+      font-size: 12px; letter-spacing: .18em; color: var(--amber-lo);
+      border-right: var(--pb); white-space: nowrap;
+    }
+    #seed-in {
+      flex: 1; background: transparent; border: none;
+      color: var(--amber-hi); font-family: 'VT323', monospace;
+      font-size: 32px; letter-spacing: .12em; text-align: center; outline: none;
+      padding: 6px 12px; text-shadow: var(--glow); -moz-appearance: textfield;
+    }
+    #seed-in::-webkit-outer-spin-button,
+    #seed-in::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+    #seed-in::placeholder { color: var(--amber-lo); }
+    .btn-scan {
+      background: transparent; border: none; border-left: var(--pb);
+      color: var(--amber); font-family: 'VT323', monospace;
+      font-size: 20px; letter-spacing: .22em; padding: 0 28px; cursor: pointer;
+      text-shadow: var(--glow); transition: background .15s, color .15s; white-space: nowrap;
+    }
+    .btn-scan:hover { background: rgba(232,160,32,.08); color: var(--amber-hi); }
+    .seed-hint {
+      font-size: 11px; color: var(--amber-xs); letter-spacing: .12em; text-align: center;
+      padding: 4px 0; border-left: var(--pb); border-right: var(--pb); border-bottom: var(--pb);
+      margin-bottom: 16px;
+    }
+
+    /* Main grid */
+    .main { display: grid; grid-template-columns: 1fr 1fr 320px; gap: 12px; }
+    @media (max-width: 1100px) {
+      .main { grid-template-columns: 1fr 1fr; }
+      .col-r { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    }
+    @media (max-width: 680px) {
+      .main { grid-template-columns: 1fr; }
+      .col-r { display: block; }
+    }
+
+    /* Panel */
+    .panel { border: var(--pb); position: relative; overflow: hidden; }
+    .panel::before {
+      content: ''; position: absolute; top: 0; left: 0;
+      width: 8px; height: 8px; border-top: 1px solid var(--amber); border-left: 1px solid var(--amber);
+    }
+    .panel::after {
+      content: ''; position: absolute; bottom: 0; right: 0;
+      width: 8px; height: 8px; border-bottom: 1px solid var(--amber); border-right: 1px solid var(--amber);
+    }
+    .phd {
+      font-size: 11px; letter-spacing: .2em; color: var(--amber-lo);
+      text-transform: uppercase; border-bottom: var(--pb); padding: 6px 12px;
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .phd-badge { font-size: 10px; letter-spacing: .1em; color: var(--amber-xs); }
+    .pb { padding: 10px 12px; }
+
+    /* Telemetry scan bar */
+    @keyframes tscan { from{top:-3px} to{top:calc(100% + 3px)} }
+    .tscan {
+      position: absolute; left: 0; right: 0; height: 2px; pointer-events: none;
+      background: linear-gradient(to right, transparent, rgba(232,160,32,.5), transparent);
+      animation: tscan 3.2s linear infinite;
+    }
+
+    /* Data table */
+    .dt { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .dt tr { border-bottom: 1px solid var(--amber-xs); }
+    .dt tr:last-child { border-bottom: none; }
+    .dt td { padding: 4px 0; vertical-align: top; }
+    .dt .dk { color: var(--amber-lo); font-size: 11px; letter-spacing: .12em; width: 46%; padding-right: 8px; padding-top: 5px; }
+    .dt .dv { color: var(--amber); }
+    .dt .dv.hi { color: var(--amber-hi); text-shadow: 0 0 6px rgba(232,160,32,.5); }
+
+    /* Biome bars */
+    .brow { display: flex; align-items: center; gap: 8px; padding: 3px 0; border-bottom: 1px solid var(--amber-xs); font-size: 12px; }
+    .brow:last-child { border-bottom: none; }
+    .bname { width: 110px; flex-shrink: 0; color: var(--amber-lo); letter-spacing: .06em; }
+    .btrack { flex: 1; height: 4px; background: var(--amber-xs); position: relative; }
+    .bfill { position: absolute; inset: 0 auto 0 0; background: var(--amber); transition: width .5s ease; }
+    .bpct { width: 32px; text-align: right; color: var(--amber-lo); font-size: 11px; }
+
+    /* Scale cells */
+    .scales { display: flex; }
+    .scell {
+      flex: 1; text-align: center; padding: 6px 2px; border-right: var(--pb);
+      font-size: 11px; color: var(--amber-xs); letter-spacing: .06em;
+      transition: color .2s, background .2s;
+    }
+    .scell:last-child { border-right: none; }
+    .scell.lit { color: var(--amber-hi); background: rgba(232,160,32,.04); text-shadow: var(--glow); }
+    .scell .sm { display: block; font-size: 10px; color: var(--amber-lo); margin-top: 2px; }
+    .scell.lit .sm { color: var(--amber-lo); }
+
+    /* Preset */
+    .pitem {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 4px 0; border-bottom: 1px solid var(--amber-xs);
+      font-size: 13px; cursor: pointer; transition: color .1s;
+    }
+    .pitem:last-child { border-bottom: none; }
+    .pitem:hover { color: var(--amber-hi); }
+    .pitem:hover .pseed { color: var(--amber-lo); }
+    .pseed { font-family: 'VT323', monospace; font-size: 15px; color: var(--amber-xs); }
+
+    /* Planet canvas */
+    #planet-cvs { display: block; width: 100%; image-rendering: pixelated; }
+
+    /* Log */
+    #log { font-size: 13px; color: var(--amber-lo); line-height: 1.9; }
+    #log .hi { color: var(--amber); }
+    #tele-log { font-size: 12px; color: var(--amber-lo); line-height: 2; }
+    #tele-log .entry { display: block; border-bottom: 1px solid var(--amber-xs); padding: 2px 0; }
+
+    /* Nav links */
+    .nav-link {
+      color: var(--amber-lo); font-size: 12px; letter-spacing: .1em; transition: color .15s;
+    }
+    .nav-link:hover { color: var(--amber); }
+
+    /* Status bar */
+    .statusbar {
+      display: flex; justify-content: space-between; gap: 16px;
+      padding-top: 10px; margin-top: 10px; border-top: var(--pb);
+      font-size: 11px; color: var(--amber-lo); letter-spacing: .08em;
+    }
+    .dot {
+      display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+      background: var(--ok); margin-right: 4px; box-shadow: 0 0 4px var(--ok);
+    }
+    @keyframes blink { 50%{opacity:0} }
+    .cursor::after { content: '█'; animation: blink 1s step-end infinite; color: var(--amber-hi); }
+  </style>
+</head>
+<body>
+
+<div id="boot"></div>
+
+<div id="app">
+
+  <!-- Header -->
+  <div class="hdr">
+    <div class="hdr-logo">GODS//</div>
+    <div class="hdr-title">STELLAR SEED EXPLORER · NAVIGATION TERMINAL</div>
+    <div class="hdr-right">GODS.NAV v0.14.2<br><span id="clock">--:--:-- UTC</span></div>
+  </div>
+
+  <!-- Seed input -->
+  <div class="seed-bar">
+    <span class="seed-lbl">SEED TRANSMISSION</span>
+    <input id="seed-in" type="number" min="0" max="999999"
+           placeholder="0000042" class="cursor" autocomplete="off">
+    <button class="btn-scan" id="btn-scan">SCAN ▸▸</button>
+  </div>
+  <div class="seed-hint">
+    INTEGER SEED [0 – 999 999] &nbsp;·&nbsp; ENTER OR SCAN &nbsp;·&nbsp; SAME SEED → SAME UNIVERSE
+  </div>
+
+  <!-- Main -->
+  <div class="main">
+
+    <!-- Col 1 -->
+    <div style="display:flex;flex-direction:column;gap:12px">
+
+      <div class="panel" style="flex:0 0 auto">
+        <div class="tscan"></div>
+        <div class="phd">▌ PLANETARY DATA <span class="phd-badge" id="disp-seed">SEED 0000042</span></div>
+        <div class="pb">
+          <table class="dt">
+            <tr><td class="dk">SYS DESIGNATION</td><td class="dv hi" id="d-sys">—</td></tr>
+            <tr><td class="dk">STAR CLASS</td>      <td class="dv"    id="d-star">—</td></tr>
+            <tr><td class="dk">PLANET INDEX</td>    <td class="dv"    id="d-idx">—</td></tr>
+            <tr><td class="dk">ARCHETYPE</td>       <td class="dv hi" id="d-arch">—</td></tr>
+            <tr><td class="dk">RADIUS</td>          <td class="dv"    id="d-rad">—</td></tr>
+            <tr><td class="dk">DAY LENGTH</td>      <td class="dv"    id="d-day">—</td></tr>
+            <tr><td class="dk">MOONS</td>           <td class="dv"    id="d-moons">—</td></tr>
+            <tr><td class="dk">RING SYSTEM</td>     <td class="dv"    id="d-rings">—</td></tr>
+            <tr><td class="dk">ATMOSPHERE</td>      <td class="dv"    id="d-atm">—</td></tr>
+            <tr><td class="dk">AURORAE</td>         <td class="dv"    id="d-aurora">—</td></tr>
+            <tr><td class="dk">WEATHER</td>         <td class="dv"    id="d-weather">—</td></tr>
+            <tr><td class="dk">FAUNA DENSITY</td>   <td class="dv"    id="d-fauna">—</td></tr>
+          </table>
+        </div>
+      </div>
+
+      <div class="panel" style="flex:1">
+        <div class="phd">▌ MISSION BRIEFING</div>
+        <div class="pb"><div id="log" class="cursor">AWAITING SEED TRANSMISSION</div></div>
+      </div>
+
+    </div>
+
+    <!-- Col 2 -->
+    <div style="display:flex;flex-direction:column;gap:12px">
+
+      <div class="panel" style="flex:0 0 auto">
+        <div class="phd">▌ BIOME COMPOSITION</div>
+        <div class="pb" id="biome-wrap"></div>
+      </div>
+
+      <div class="panel" style="flex:0 0 auto">
+        <div class="phd">▌ OBSERVATION SCALES</div>
+        <div class="scales">
+          <div class="scell" data-s="0">GALACTIC<span class="sm">10²² m</span></div>
+          <div class="scell" data-s="1">STELLAR <span class="sm">10¹³ m</span></div>
+          <div class="scell" data-s="2">ORBITAL <span class="sm">10⁷ m</span></div>
+          <div class="scell" data-s="3">ATMOS   <span class="sm">10³ m</span></div>
+          <div class="scell" data-s="4">SURFACE <span class="sm">10⁰ m</span></div>
+        </div>
+      </div>
+
+      <div class="panel" style="flex:0 0 auto">
+        <div class="phd">▌ NAVIGATION</div>
+        <div class="pb" style="display:flex;gap:16px;flex-wrap:wrap">
+          <a href="index.html"   class="nav-link">← LANDING PAGE</a>
+          <a href="https://github.com/Oli97430/GODS/releases/latest" target="_blank" class="nav-link">↓ DOWNLOAD v0.14.2</a>
+          <a href="https://github.com/Oli97430/GODS" target="_blank" class="nav-link">◈ GITHUB ↗</a>
+        </div>
+      </div>
+
+      <div class="panel" style="flex:1">
+        <div class="phd">▌ TELEMETRY LOG</div>
+        <div class="pb"><div id="tele-log"></div></div>
+      </div>
+
+    </div>
+
+    <!-- Col 3 -->
+    <div class="col-r" style="display:flex;flex-direction:column;gap:12px">
+
+      <div class="panel" style="flex:0 0 auto">
+        <div class="phd">▌ TELEMETRY PREVIEW <span class="phd-badge" id="planet-badge">SEED 0000042</span></div>
+        <canvas id="planet-cvs" width="320" height="320"></canvas>
+        <div style="padding:6px 12px;font-size:11px;color:var(--amber-lo);border-top:var(--pb);display:flex;justify-content:space-between">
+          <span id="pv-coords">LAT — LON —</span>
+          <span id="pv-arch">—</span>
+        </div>
+      </div>
+
+      <div class="panel" style="flex:1">
+        <div class="phd">▌ NAMED SYSTEMS — 16 PRESETS</div>
+        <div class="pb" id="preset-list"></div>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="statusbar">
+    <span><span class="dot"></span>ONLINE · GODS NAVIGATION AUTHORITY</span>
+    <span id="status-coords">POS: —</span>
+    <span>SEED CATALOGUE v0.14.2 · MIT LICENSE</span>
+  </div>
+
+</div>
+
+<script>
+'use strict';
+
+/* ── LCG ─────────────────────────────────────────────────────────────── */
+class LCG {
+  constructor(seed) { this.s = (seed | 0) >>> 0; }
+  next() {
+    this.s = (Math.imul(this.s, 1664525) + 1013904223) >>> 0;
+    return this.s / 0x100000000;
+  }
+  int(a, b) { return a + Math.floor(this.next() * (b - a + 1)); }
+  flt(a, b) { return a + this.next() * (b - a); }
+  bool(p)   { return this.next() < (p != null ? p : .5); }
+  pick(arr) { return arr[Math.floor(this.next() * arr.length)]; }
+  wgt(arr)  {
+    const tot = arr.reduce((s, x) => s + x.w, 0);
+    let r = this.next() * tot;
+    for (const {v, w} of arr) { r -= w; if (r <= 0) return v; }
+    return arr[arr.length - 1].v;
+  }
+}
+
+/* ── STATIC DATA ─────────────────────────────────────────────────────── */
+const STARS = [
+  {k:'O',lbl:'O-CLASS  BLAZING BLUE',  temp:'> 30 000 K', rgb:[100,140,255], w:1 },
+  {k:'B',lbl:'B-CLASS  BLUE-WHITE',    temp:'10–30 kK',   rgb:[160,185,255], w:3 },
+  {k:'A',lbl:'A-CLASS  WHITE',         temp:'7.5–10 kK',  rgb:[210,220,255], w:6 },
+  {k:'F',lbl:'F-CLASS  YELLOW-WHITE',  temp:'6–7.5 kK',   rgb:[255,248,220], w:12},
+  {k:'G',lbl:'G-CLASS  YELLOW',        temp:'5–6 kK',     rgb:[255,230,150], w:18},
+  {k:'K',lbl:'K-CLASS  ORANGE',        temp:'3.5–5 kK',   rgb:[255,175,70],  w:16},
+  {k:'M',lbl:'M-CLASS  RED DWARF',     temp:'< 3.5 kK',   rgb:[255,70,30],   w:20},
+];
+
+const ARCHETYPES = [
+  {id:'temperate',lbl:'TEMPERATE',pal:[[40,110,170],[35,100,60],[100,150,70],[150,180,90],[220,220,190]]},
+  {id:'arid',     lbl:'ARID',     pal:[[190,150,55],[170,120,45],[150,100,38],[120,80,30],[90,60,20]]},
+  {id:'lush',     lbl:'LUSH',     pal:[[25,100,140],[25,120,45],[50,140,60],[70,160,80],[100,180,90]]},
+  {id:'frozen',   lbl:'FROZEN',   pal:[[150,190,230],[175,210,240],[195,225,248],[210,232,250],[225,240,255]]},
+  {id:'volcanic', lbl:'VOLCANIC', pal:[[180,40,10],[140,50,15],[90,30,10],[60,20,8],[40,12,5]]},
+  {id:'alien',    lbl:'ALIEN',    pal:[[60,20,130],[100,30,150],[50,140,160],[160,40,90],[40,100,80]]},
+];
+
+const BIOMES = {
+  temperate:[{n:'OCEAN',w:28},{n:'FOREST',w:18},{n:'PLAINS',w:16},{n:'TAIGA',w:12},{n:'DESERT',w:10},{n:'TUNDRA',w:8},{n:'SWAMP',w:6},{n:'GLACIER',w:2}],
+  arid:     [{n:'DESERT',w:30},{n:'BADLANDS',w:22},{n:'SAVANNA',w:18},{n:'STEPPE',w:14},{n:'DRY LAKE',w:8},{n:'OCEAN',w:6},{n:'OASIS',w:2}],
+  lush:     [{n:'OCEAN',w:25},{n:'JUNGLE',w:30},{n:'FOREST',w:20},{n:'SWAMP',w:12},{n:'MIRE',w:8},{n:'PLAINS',w:5}],
+  frozen:   [{n:'ICE CAP',w:28},{n:'TUNDRA',w:22},{n:'GLACIER',w:20},{n:'TAIGA',w:14},{n:'CREVASSE',w:10},{n:'SLUSH SEA',w:6}],
+  volcanic: [{n:'LAVA',w:20},{n:'ASH',w:25},{n:'BASALT',w:22},{n:'CALDERA',w:15},{n:'PUMICE',w:12},{n:'OBSIDIAN',w:6}],
+  alien:    [{n:'SPORE FIELDS',w:22},{n:'CRYSTAL SEA',w:18},{n:'KELP MATS',w:16},{n:'FUNGAL PLAINS',w:20},{n:'VOID STONE',w:14},{n:'BRINE POOLS',w:10}],
+};
+
+const ATMOSPHERES = ['DENSE NITROGEN','THIN NITROGEN','CO₂ HEAVY','OXYGEN RICH','METHANE TRACE','SULFUR TRACE','ARGON STABLE','EXOTIC IONIC'];
+const WEATHERS    = ['CALM — RARE STORMS','ACTIVE — FREQUENT RAIN','SEVERE — CYCLONES','ARID — NO PRECIPITATION','ELECTRICAL — CONSTANT LIGHTNING','GLACIAL — BLIZZARDS','VOLCANIC ASH CYCLES','QUIET — MIST ONLY'];
+const FAUNA       = ['BARREN','SPARSE','MODERATE','DENSE','TEEMING'];
+const SYSNAMES    = ['ARCTOS','BELINAE','CASSIAN','DRAVOS','ERIDANI','FULGUR','GOSHEN','HYPNOS','IRIDIS','JUVARA','KELDRA','LUMEN','MOLETH','NOVUS','ORENTH','PYREX'];
+
+/* ── GENERATE ────────────────────────────────────────────────────────── */
+function generatePlanet(seed) {
+  const rng   = new LCG(seed);
+  const star  = rng.wgt(STARS.map(s => ({v:s, w:s.w})));
+  const sysN  = SYSNAMES[rng.int(0, SYSNAMES.length - 1)];
+  const total = rng.int(3, 8);
+  const idx   = rng.int(1, total);
+  const arch  = rng.pick(ARCHETYPES);
+  const radius= rng.int(3800, 14000);
+  const day   = rng.flt(6, 72);
+  const moons = rng.int(0, 5);
+  const rings = rng.bool(.25);
+  const atm   = rng.pick(ATMOSPHERES);
+  const aurora= rng.bool(.42);
+  const weather = rng.pick(WEATHERS);
+  const fauna = rng.pick(FAUNA);
+
+  const baseBiomes = BIOMES[arch.id];
+  let wTotal = 0;
+  const jitteredB = baseBiomes.map(b => {
+    const jw = b.w * rng.flt(0.3, 1.7);
+    wTotal += jw;
+    return {n: b.n, jw};
+  });
+  const biomes = jitteredB
+    .map(b => ({name: b.n, pct: Math.max(1, Math.round(b.jw / wTotal * 100))}))
+    .sort((a, b) => b.pct - a.pct);
+
+  const [sr, sg, sb] = star.rgb;
+  const [p0r, p0g, p0b] = arch.pal[0];
+  const atmRgb = [Math.round(sr*.6+p0r*.4), Math.round(sg*.6+p0g*.4), Math.round(sb*.6+p0b*.4)];
+
+  return {seed, sysN, total, star, idx, arch, radius, day, moons, rings, atm, aurora, weather, fauna, biomes, atmRgb};
+}
+
+/* ── NOISE GRID ──────────────────────────────────────────────────────── */
+function buildNoise(seed, size) {
+  const rng = new LCG(seed ^ 0x5F3759DF);
+  const g   = new Float32Array(size * size);
+  for (let i = 0; i < g.length; i++) g[i] = rng.next();
+  return g;
+}
+function sampleNoise(g, sz, u, v) {
+  u = ((u % 1) + 1) % 1; v = ((v % 1) + 1) % 1;
+  const gx = u * (sz-1), gy = v * (sz-1);
+  const ix = gx|0, iy = gy|0;
+  const fx = gx-ix, fy = gy-iy;
+  const ix1 = Math.min(ix+1,sz-1), iy1 = Math.min(iy+1,sz-1);
+  return (g[iy *sz+ix ]*(1-fx) + g[iy *sz+ix1]*fx)*(1-fy)
+       + (g[iy1*sz+ix ]*(1-fx) + g[iy1*sz+ix1]*fx)*fy;
+}
+
+/* ── DRAW PLANET ─────────────────────────────────────────────────────── */
+function drawPlanet(planet) {
+  const cvs = document.getElementById('planet-cvs');
+  const ctx = cvs.getContext('2d');
+  const W = cvs.width, H = cvs.height, cx = W/2, cy = H/2, R = W*.37;
+
+  ctx.fillStyle = '#030200';
+  ctx.fillRect(0, 0, W, H);
+
+  // Background stars
+  const srng = new LCG(planet.seed ^ 0xDEADBEEF);
+  for (let i = 0; i < 220; i++) {
+    const sx = srng.next()*W, sy = srng.next()*H;
+    const sr = srng.next()<.04 ? 1.4 : .7;
+    ctx.beginPath();
+    ctx.arc(sx, sy, sr, 0, Math.PI*2);
+    ctx.fillStyle = 'rgba(232,160,32,' + (.1+srng.next()*.5).toFixed(2) + ')';
+    ctx.fill();
+  }
+
+  // Atmosphere glow
+  const [ar,ag,ab] = planet.atmRgb;
+  const ag_ = ctx.createRadialGradient(cx,cy,R*.9, cx,cy,R*1.32);
+  ag_.addColorStop(0,  'rgba('+ar+','+ag+','+ab+',.30)');
+  ag_.addColorStop(.5, 'rgba('+ar+','+ag+','+ab+',.10)');
+  ag_.addColorStop(1,  'transparent');
+  ctx.beginPath(); ctx.arc(cx,cy,R*1.32,0,Math.PI*2);
+  ctx.fillStyle = ag_; ctx.fill();
+
+  // Planet sphere
+  const GS = 64;
+  const n1 = buildNoise(planet.seed, GS);
+  const n2 = buildNoise(planet.seed^0x12345678, GS);
+  const n3 = buildNoise(planet.seed^0x87654321, GS);
+  const pal = planet.arch.pal;
+  const imgd = ctx.createImageData(W, H);
+  const data = imgd.data;
+  for (let py = 0; py < H; py++) {
+    for (let px = 0; px < W; px++) {
+      const dx = px-cx, dy = py-cy, d2 = dx*dx+dy*dy;
+      if (d2 > R*R) continue;
+      const nzv = Math.sqrt(R*R - d2);
+      const nx = dx/R, ny = dy/R, nz = nzv/R;
+      const lat = Math.asin(Math.max(-1, Math.min(1, ny)));
+      const lon = Math.atan2(nx, nz);
+      const u = (lon/(2*Math.PI)+.5)%1, v = lat/Math.PI+.5;
+      const noise = sampleNoise(n1,GS,u,v)*.55 + sampleNoise(n2,GS,u*2.1,v*1.7)*.30 + sampleNoise(n3,GS,u*4.3,v*3.9)*.15;
+      const band = Math.max(0, Math.min(.999, v+(noise-.5)*.22));
+      const pidx = band*(pal.length-1);
+      const pi0 = pidx|0, pi1 = Math.min(pi0+1, pal.length-1), pt = pidx-pi0;
+      let r = pal[pi0][0]+(pal[pi1][0]-pal[pi0][0])*pt;
+      let g = pal[pi0][1]+(pal[pi1][1]-pal[pi0][1])*pt;
+      let b = pal[pi0][2]+(pal[pi1][2]-pal[pi0][2])*pt;
+      const tex = (noise-.5)*38;
+      r = Math.max(0,Math.min(255,r+tex));
+      g = Math.max(0,Math.min(255,g+tex));
+      b = Math.max(0,Math.min(255,b+tex));
+      const diff = Math.max(0, nx*.55+ny*(-.40)+nz*.74);
+      const lit  = .18+diff*.82;
+      const limb = Math.pow(Math.max(.18, nz), .7);
+      const f = lit*limb;
+      const i4 = (py*W+px)*4;
+      data[i4]   = Math.round(r*f);
+      data[i4+1] = Math.round(g*f);
+      data[i4+2] = Math.round(b*f);
+      data[i4+3] = 255;
+    }
+  }
+  ctx.putImageData(imgd, 0, 0);
+
+  // Rings
+  if (planet.rings) {
+    ctx.save(); ctx.translate(cx,cy); ctx.scale(1,.22);
+    const rg = ctx.createRadialGradient(0,0,R*1.1, 0,0,R*1.7);
+    rg.addColorStop(0,  'rgba(210,185,120,.5)');
+    rg.addColorStop(.5, 'rgba(190,165,100,.3)');
+    rg.addColorStop(.85,'rgba(160,130,80,.1)');
+    rg.addColorStop(1,  'transparent');
+    ctx.beginPath(); ctx.arc(0,0,R*1.7,0,Math.PI*2); ctx.fillStyle=rg; ctx.fill();
+    ctx.beginPath(); ctx.arc(0,0,R*1.08,0,Math.PI*2); ctx.fillStyle='#030200'; ctx.fill();
+    ctx.restore();
+  }
+
+  // Specular
+  const sg_ = ctx.createRadialGradient(cx-R*.30,cy-R*.35,0, cx-R*.30,cy-R*.35,R*.65);
+  sg_.addColorStop(0,  'rgba(255,248,235,.20)');
+  sg_.addColorStop(.4, 'rgba(255,248,235,.05)');
+  sg_.addColorStop(1,  'transparent');
+  ctx.save(); ctx.beginPath(); ctx.arc(cx,cy,R,0,Math.PI*2); ctx.clip();
+  ctx.fillStyle=sg_; ctx.fillRect(0,0,W,H); ctx.restore();
+
+  // Clouds (temperate/lush)
+  if (planet.arch.id==='temperate' || planet.arch.id==='lush') {
+    const crng = new LCG(planet.seed^0xC10UDBE);
+    ctx.save(); ctx.beginPath(); ctx.arc(cx,cy,R,0,Math.PI*2); ctx.clip();
+    for (let ci=0; ci<8; ci++) {
+      const ca=crng.flt(-Math.PI,Math.PI), cr_=crng.flt(0,R*.85);
+      const ccx=cx+cr_*Math.cos(ca), ccy=cy+cr_*Math.sin(ca)*.55;
+      const cw=crng.flt(R*.20,R*.55), ch=cw*crng.flt(.1,.25);
+      const alph=crng.flt(.10,.20).toFixed(2);
+      const cg_=ctx.createRadialGradient(ccx,ccy,0, ccx,ccy,cw*.5);
+      cg_.addColorStop(0,  'rgba(240,240,235,'+alph+')');
+      cg_.addColorStop(1,  'transparent');
+      ctx.beginPath();
+      ctx.ellipse(ccx,ccy,cw*.5,ch*.5,crng.flt(0,Math.PI),0,Math.PI*2);
+      ctx.fillStyle=cg_; ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  // Atmospheric rim
+  ctx.beginPath(); ctx.arc(cx,cy,R*1.035,0,Math.PI*2);
+  ctx.strokeStyle='rgba('+ar+','+ag+','+ab+',.6)';
+  ctx.lineWidth=R*.07; ctx.stroke();
+
+  // Reticle
+  ctx.setLineDash([6,5]);
+  ctx.strokeStyle='rgba(232,160,32,.45)'; ctx.lineWidth=1;
+  ctx.beginPath(); ctx.arc(cx,cy,R*1.14,0,Math.PI*2); ctx.stroke();
+  ctx.setLineDash([]);
+  const bD=R*1.14*.72, bL=14;
+  for (const [sx,sy] of [[-1,-1],[1,-1],[1,1],[-1,1]]) {
+    const bx=cx+sx*bD, by=cy+sy*bD;
+    ctx.beginPath();
+    ctx.moveTo(bx, by-sy*bL); ctx.lineTo(bx,by); ctx.lineTo(bx+sx*bL,by);
+    ctx.strokeStyle='rgba(232,160,32,.6)'; ctx.lineWidth=1.2; ctx.stroke();
+  }
+  ctx.fillStyle='rgba(232,160,32,.55)';
+  ctx.font='14px VT323, monospace'; ctx.textAlign='center';
+  ctx.fillText('[ TARGET LOCKED ]', cx, cy+R+22);
+  ctx.textAlign='left';
+}
+
+/* ── DOM HELPERS (safe — all values from static tables or Math) ───────── */
+function $(id) { return document.getElementById(id); }
+
+function setText(id, val) {
+  const el = $(id);
+  if (el) el.textContent = val;
+}
+
+function makeEl(tag, cls, txt) {
+  const el = document.createElement(tag);
+  if (cls) el.className = cls;
+  if (txt !== undefined) el.textContent = txt;
+  return el;
+}
+
+// Build a log paragraph from alternating plain/highlight segments
+// segments: [{t:'text', hi:bool}, ...]
+function buildLog(segments) {
+  const root = document.createDocumentFragment();
+  for (const seg of segments) {
+    if (seg.br) {
+      root.appendChild(document.createElement('br'));
+    } else {
+      const el = seg.hi ? makeEl('span', 'hi', seg.t) : document.createTextNode(seg.t);
+      root.appendChild(el);
+    }
+  }
+  return root;
+}
+
+/* ── UPDATE UI ──────────────────────────────────────────────────────── */
+function updateUI(p) {
+  setText('disp-seed',    'SEED ' + String(p.seed).padStart(7,'0'));
+  setText('planet-badge', 'SEED ' + String(p.seed).padStart(7,'0'));
+  setText('d-sys',    p.sysN + '-' + String(p.idx).padStart(2,'0'));
+  setText('d-star',   p.star.lbl + '  ' + p.star.temp);
+  setText('d-idx',    'PLANET ' + p.idx + ' OF ' + p.total);
+  setText('d-arch',   p.arch.lbl);
+  setText('d-rad',    p.radius.toLocaleString('en-US') + ' KM');
+  setText('d-day',    p.day.toFixed(1) + ' HOURS');
+  setText('d-moons',  p.moons > 0 ? p.moons + ' SATELLITE(S) CONFIRMED' : 'NONE DETECTED');
+  setText('d-rings',  p.rings ? 'PRESENT — ICE/ROCK MIX' : 'ABSENT');
+  setText('d-atm',    p.atm);
+  setText('d-aurora', p.aurora ? 'DETECTED — MAGNETOSPHERE ACTIVE' : 'ABSENT');
+  setText('d-weather',p.weather);
+  setText('d-fauna',  p.fauna);
+  setText('pv-arch',  p.arch.lbl);
+
+  // Biome bars (safe DOM construction)
+  const bwrap = $('biome-wrap');
+  while (bwrap.firstChild) bwrap.removeChild(bwrap.firstChild);
+  for (const b of p.biomes) {
+    const row   = makeEl('div', 'brow');
+    const name  = makeEl('span', 'bname', b.name);
+    const track = makeEl('div', 'btrack');
+    const fill  = makeEl('div', 'bfill');
+    fill.style.width = b.pct + '%';
+    const pct = makeEl('span', 'bpct', b.pct + '%');
+    track.appendChild(fill);
+    row.appendChild(name); row.appendChild(track); row.appendChild(pct);
+    bwrap.appendChild(row);
+  }
+
+  // Scale cells — light up sequentially
+  const cells = document.querySelectorAll('.scell');
+  cells.forEach(c => c.classList.remove('lit'));
+  cells.forEach((c, i) => setTimeout(() => c.classList.add('lit'), i * 180));
+
+  // Mission briefing (safe segment builder)
+  const top3 = p.biomes.slice(0,3).map(b => b.name).join(' \xb7 ');
+  const logEl = $('log');
+  logEl.className = ''; // remove cursor
+  while (logEl.firstChild) logEl.removeChild(logEl.firstChild);
+  logEl.appendChild(buildLog([
+    {t:'SEED '}, {t:String(p.seed).padStart(7,'0'), hi:true}, {t:' CONFIRMED.'},{br:true},
+    {t:'NAVIGATING TO '},{t:p.sysN, hi:true},{t:' SYSTEM.'},{br:true},
+    {t:'STAR CLASS '},{t:p.star.k, hi:true},{t:' — '+p.star.temp+'.'},{br:true},{br:true},
+    {t:'TARGET: PLANET '+p.idx+' / '+p.total+'.'},{br:true},
+    {t:'ARCHETYPE: '},{t:p.arch.lbl, hi:true},{t:'.'},{br:true},
+    {t:'RADIUS: '},{t:p.radius.toLocaleString('en-US'), hi:true},{t:' KM — DAY: '},{t:p.day.toFixed(1), hi:true},{t:' H.'},{br:true},
+    ...(p.moons>0 ? [{t:'MOONS: '},{t:String(p.moons), hi:true},{t:'.'},{br:true}] : []),
+    ...(p.rings  ? [{t:'RING SYSTEM DETECTED.'},{br:true}] : []),
+    {br:true},
+    {t:'DOMINANT BIOMES:'},{br:true},
+    {t:top3, hi:true},{t:'.'},{br:true},{br:true},
+    ...(p.aurora ? [{t:'AURORAE VISIBLE AT NIGHT.'},{br:true}] : []),
+    {t:'WEATHER: '},{t:p.weather, hi:true},{t:'.'},{br:true},
+    {t:'FAUNA: '},{t:p.fauna, hi:true},{t:'.'},{br:true},{br:true},
+    {t:'DESCENT WINDOW NOMINAL.'},{br:true},
+    {t:'GOOD LANDING.'},
+  ]));
+
+  // Telemetry log (newest entry prepended — safe DOM)
+  const tlog = $('tele-log');
+  const now  = new Date();
+  const ts   = now.toISOString().replace('T',' ').slice(0,19);
+  const entry = makeEl('span', 'entry',
+    ts + '  SEED ' + String(p.seed).padStart(7,'0') + '  ' + p.arch.lbl + ' — ' + p.sysN);
+  tlog.insertBefore(entry, tlog.firstChild);
+
+  // Coords (pure math, no user string)
+  const lat = (((p.seed * 137) % 18000) / 100 - 90).toFixed(2);
+  const lon = (((p.seed *  97) % 36000) / 100 - 180).toFixed(2);
+  const coordStr = 'LAT ' + (lat>0?'+':'') + lat + '\xb0  LON ' + (lon>0?'+':'') + lon + '\xb0';
+  setText('status-coords', 'POS: ' + coordStr);
+  setText('pv-coords',     coordStr);
+
+  drawPlanet(p);
+}
+
+/* ── PRESETS ─────────────────────────────────────────────────────────── */
+const PRESETS = [
+  {n:'ARCTOS-7',   s:42},     {n:'BELINAE-3',  s:1337},
+  {n:'CASSIAN-12', s:9001},   {n:'DRAVOS-1',   s:31415},
+  {n:'ERIDANI-9',  s:8675},   {n:'FULGUR-4',   s:2718},
+  {n:'GOSHEN-6',   s:7777},   {n:'HYPNOS-11',  s:12345},
+  {n:'IRIDIS-2',   s:54321},  {n:'JUVARA-8',   s:11111},
+  {n:'KELDRA-5',   s:99999},  {n:'LUMEN-13',   s:13579},
+  {n:'MOLETH-7',   s:24680},  {n:'NOVUS-16',   s:314159},
+  {n:'ORENTH-3',   s:161803}, {n:'PYREX-14',   s:271828},
+];
+
+function buildPresets() {
+  const el = $('preset-list');
+  for (const p of PRESETS) {
+    const row   = makeEl('div', 'pitem');
+    const name  = makeEl('span', null, p.n);
+    const seedS = makeEl('span', 'pseed', String(p.s).padStart(7,'0'));
+    row.appendChild(name);
+    row.appendChild(seedS);
+    row.addEventListener('click', () => {
+      $('seed-in').value = p.s;
+      scan(p.s);
+    });
+    el.appendChild(row);
+  }
+}
+
+/* ── SCAN ────────────────────────────────────────────────────────────── */
+function scan(seedVal) {
+  const s = Math.max(0, Math.min(999999, Math.abs(parseInt(seedVal, 10) || 0)));
+  updateUI(generatePlanet(s));
+}
+
+/* ── BOOT ────────────────────────────────────────────────────────────── */
+const BOOT_LINES = [
+  {t:'GODS NAVIGATION AUTHORITY', c:''},
+  {t:'© STELLAR CATALOGUE v0.14.2', c:'dim'},
+  {t:'', c:''},
+  {t:'BIOS INIT .....................................', c:'dim', ok:true},
+  {t:'LOADING LCG-32 SEED ENGINE ...................', c:'dim', ok:true},
+  {t:'CALIBRATING STELLAR CATALOGUE (400 SEEDS) ...', c:'dim', ok:true},
+  {t:'LOADING ARCHETYPE TABLES .....................', c:'dim', ok:true},
+  {t:'INITIALISING BIOME SAMPLER ...................', c:'dim', ok:true},
+  {t:'WARMING TELEMETRY CANVAS .....................', c:'dim', ok:true},
+  {t:'SEALING MEMORY BANKS .........................', c:'dim', ok:true},
+  {t:'', c:''},
+  {t:'> TERMINAL READY', c:''},
+  {t:'> TRANSMIT SEED TO BEGIN PLANETARY SCAN', c:''},
+  {t:'> DEFAULT: SEED 0000042 — ARCTOS-7', c:'dim'},
+  {t:'', c:''},
+];
+
+async function runBoot() {
+  const el = $('boot');
+  const delay = ms => new Promise(r => setTimeout(r, ms));
+  for (const line of BOOT_LINES) {
+    await delay(line.t === '' ? 50 : 18 + line.t.length * 3.0);
+    const span = makeEl('span', 'bl' + (line.c ? ' '+line.c : ''), line.t);
+    if (line.ok) {
+      const ok = makeEl('span', 'ok', ' OK');
+      span.appendChild(ok);
+    }
+    el.appendChild(span);
+  }
+  await delay(400);
+  el.style.transition = 'opacity .18s';
+  el.style.opacity    = '0';
+  await delay(200);
+  el.style.display    = 'none';
+  $('app').style.display = 'block';
+  await delay(80);
+  scan(42);
+}
+
+/* ── CLOCK ───────────────────────────────────────────────────────────── */
+function tickClock() {
+  const d  = new Date();
+  const hh = String(d.getUTCHours()).padStart(2,'0');
+  const mm = String(d.getUTCMinutes()).padStart(2,'0');
+  const ss = String(d.getUTCSeconds()).padStart(2,'0');
+  setText('clock', hh+':'+mm+':'+ss+' UTC');
+}
+setInterval(tickClock, 1000);
+tickClock();
+
+/* ── INIT ────────────────────────────────────────────────────────────── */
+document.addEventListener('DOMContentLoaded', () => {
+  buildPresets();
+  $('btn-scan').addEventListener('click', () => scan($('seed-in').value || 42));
+  $('seed-in').addEventListener('keydown', e => { if (e.key==='Enter') scan(e.target.value||42); });
+  runBoot();
+});
+</script>
+</body>
+</html>
