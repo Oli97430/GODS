@@ -11,7 +11,7 @@ config_version=5
 [application]
 
 config/name="GODS"
-config/version="0.15.0"
+config/version="0.16.0"
 run/main_scene="res://scenes/Main.tscn"
 config/features=PackedStringArray("4.6", "Forward Plus")
 config/icon="res://icon.svg"
@@ -38,6 +38,7 @@ SmartPlug="*res://scripts/SmartPlug.gd"
 [rendering]
 
 rendering_device/driver.windows="d3d12"
+textures/default_filters/anisotropic_filtering_level=4
 
 [xr]
 
@@ -51,4 +52,32 @@ shaders/enabled=true
 biolum_glow={
 "type": "float",
 "value": 0.0
+}
+cloud_coverage_g={
+"type": "float",
+"value": 0.0
+}
+clouds_on_g={
+"type": "float",
+"value": 1.0
+}
+cloud_base_g={
+"type": "float",
+"value": 650.0
+}
+cloud_top_g={
+"type": "float",
+"value": 1300.0
+}
+cloud_scale_g={
+"type": "float",
+"value": 0.0016
+}
+cloud_absorb_g={
+"type": "float",
+"value": 0.05
+}
+cloud_speed_g={
+"type": "float",
+"value": 0.006
 }

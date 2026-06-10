@@ -4,7 +4,7 @@
 
 **GODS** is a seamless, deterministic, **contemplative** space explorer for **PCVR** (and desktop) built in **Godot 4.6.2**. At its heart it's pure exploration — no objectives, no menus in the way — across four continuous scales: **galaxy → star system → planet (orbit) → planet surface (on foot)**, with a **survival & crafting layer**, an **optional arcade combat mode**, and **online co-op** layered on top for when you want them. Everything is **generated procedurally from a seed**, so the same seed always yields the same universe, and what you see from orbit is exactly what you walk on at ground level.
 
-> Put on a headset, pick a star, dive toward a planet, land on it, build a shelter while the sun sets, and watch the aurora light up the night sky.
+> Put on a headset, pick a star, dive toward a planet, land on it, craft a torch, fish at the coast as the sun sets, and watch the aurora light up the night sky while your fire crackles.
 
 ---
 
@@ -23,6 +23,7 @@
 - **Planet archetypes** for variety (temperate, arid, lush, frozen, volcanic, alien).
 - **Craters & volcanoes** baked into the shared elevation field.
 - **Day/night cycle & dynamic sky** (volumetric clouds, sunrise/sunset, **aurorae** on ~40% of planets at night).
+- **Stars, galaxy haze & moons occluded by clouds** — sky geometry fades where clouds pass in front, via a per-shader cloud transmittance march synchronized with the sky shader.
 - **Weather** (cloud cover, rain, storms with deterministic lightning) — same place + same time → same weather.
 - **Moons & rings** consistent across all three scales.
 - **Fauna** — turtles, birds, and other creatures wander and react to you.
@@ -32,18 +33,48 @@
 - **Walk**, **jump**, **Iron Man free-flight** (gravity-off armor), and a **paraglider** for soaring.
 - **Comfort vignette** that tightens with speed (anti-nausea), **snap or smooth turning**, all tunable.
 - **Worldspace Options panel** in VR (no need to remove the headset) + a flat desktop overlay — same settings.
-- **Wrist computer** in VR (look at your left wrist): scale, coordinates, time controls, weather, inventory, crafting, building, and nearby points of interest.
+- **Wrist computer** in VR (look at your left wrist): scale, coordinates, time controls, weather, inventory, crafting, building, fishing and nearby points of interest.
 
 ### Survival & crafting
-All crafting and building is **fully optional** — the contemplative explorer is intact if you ignore it.
+All crafting, building and fishing is **fully optional** — the contemplative explorer is intact if you ignore it.
 
 - **Harvest**: pick fruits, **fell any tree** (axe swing) — wild, the ones you planted (once grown), and the **giant landmark trees** — mine rocks (pickaxe swing) for stone, iron, copper, gold and gem crystals.
 - **Smelt** ore into ingots in the **Foundry** tab of the wrist computer.
-- **Craft** structural pieces: planks, stone walls, thatch roofs, iron pillars, copper doors, golden lanterns.
+- **Craft** — **36 data-driven recipes** across 6 categories:
+  - *Build* — planks, stone walls, thatch roofs, iron pillars, copper doors, golden lanterns.
+  - *Furniture & Decor* — **12 dedicated 3D meshes** (table, chair, shelf, chest, barrel, bed, column, statue, fence, ladder, stairs, window) built procedurally.
+  - *Blocks* — wood, stone, leaf, iron cubic blocks.
+  - *Food* — cooked meals from harvested ingredients.
+  - *Fishing* — **fishing rod** (4 wood).
 - **Build**: place pieces with a ghost preview, snap to terrain, and stack them to construct shelters and towers.
 - **Edit constructions**: aim at any placed piece to delete it (resource refunded) or pick it up and move it — non-destructive editing.
-- **Minecraft-style cubic blocks** (1 m³): wood, stone, leaf, iron — **grid-snapped placement**, **face-stacking** (aim a face of an existing block to snap the next one flush against it). Build walls, towers, rooms block by block.
+- **Minecraft-style cubic blocks** (1 m³): grid-snapped placement, face-stacking.
 - **Plant seeds**: decompose a fruit into a seed, plant it in soil, and a new tree grows over time.
+
+### Fishing
+- **Craft a fishing rod** (4 wood, Fishing tab in the wrist computer).
+- **Equip it** from the Sac inventory with one tap — the rod appears in your right hand; harvest tool and weapons holster automatically.
+- **Head to the coast** — find a spot where deep enough water meets the shore.
+- **Cast** with the trigger: the line arcs out and the bobber lands. Wait for the bite…
+- **Yank** the trigger on the bite for a catch: **5 varieties** (small / medium / large / rare fish, or a kelp trinket), each with heal-on-eat values. Controller **haptic feedback** on bite and catch.
+- Fish heal you when eaten from the **Sac** inventory.
+
+### Enriched inventory (Sac)
+The **Sac** tab now shows items grouped by category with **per-item contextual actions**:
+- **Eat** — food & fish items restore health.
+- **Decompose** — fruit → seed ready to plant.
+- **Plant** — place a seed in the ground directly.
+- **Place** — drop a furniture piece into the world.
+- **Equip** — gear items (fishing rod) go straight into your hand.
+
+### Left-hand torch
+A **procedural torch** is always attached to your left hand. Toggle it with **Y (left)** in VR (or **L** on desktop) for an instant light source at night — independent of any crafting requirement.
+
+### Graphics quality
+- **Directional shadow cascades** (2 splits, 120 m range, blended) — every tree, rock, creature and built structure casts a crisp shadow on the terrain.
+- **Aerial perspective** — distant terrain softens into the atmospheric haze, matching the orbital view.
+- **Dithered debanding** — eliminates the subtle gradient bands that appear on headset OLED/LCD panels in dawn/dusk skies.
+- **Anisotropic filtering 16×** — textures stay sharp at grazing angles on terrain and structures.
 
 ### Hardware
 - **OpenXR** (Virtual Desktop / SteamVR / native) with **controllers or hand tracking**.
@@ -88,6 +119,7 @@ That's it.
 | **Space** | Jump |
 | **F** | Toggle Iron Man flight (Space = up, C = down, Shift = boost) |
 | **E** | Deploy / fold paraglider (while airborne) |
+| **L** | Toggle left-hand torch |
 | **Left-click / Enter** | Select / descend one scale (land on a planet, etc.) |
 | **Escape** | Ascend one scale / cancel placement |
 | **Tab** | Open/close the Options menu |
@@ -103,11 +135,12 @@ That's it.
 | **A (right)** | Jump |
 | **B (right)** | Toggle Iron Man flight |
 | **X (left)** | Deploy / fold paraglider (while airborne) |
-| **Y (left)** | Go back up to orbit |
+| **Y (left)** | Toggle left-hand torch |
 | **☰ menu (left)** | Open/close the worldspace Options panel |
 | **Right controller aim + trigger** *(or index finger)* | Interact with panels / the wrist computer |
-| **Look at your left wrist** | Wrist computer (inventory, crafting, building…) |
+| **Look at your left wrist** | Wrist computer (inventory, crafting, fishing, building…) |
 | **Trigger** *(while placing)* | Place a piece / block |
+| **Trigger** *(rod equipped, at water's edge)* | Cast / yank fishing line |
 | **Grip (short press)** *(aimed at a piece)* | Delete it (resource refunded) |
 | **Grip (hold ~0.5 s)** *(aimed at a piece)* | Pick it up and move it |
 
@@ -124,8 +157,8 @@ That's it.
 |---|---|
 | **Sonde** | Planet probe — biome, altitude, time |
 | **Temps** | Time controls (pause / fast-forward / real-time) |
-| **Sac** | Inventory (items collected, eat to heal) |
-| **Bâtir** | Foundry · Crafting · Blocks · Gardening |
+| **Sac** | Inventory — items by category with contextual actions (eat / decompose / plant / place / equip) |
+| **Bâtir** | Foundry · Crafting (36 recipes) · Blocks · Gardening · Fishing gear |
 | **Coop** | Co-op (host / join / quit) |
 
 ---
@@ -168,6 +201,9 @@ This is a standard Godot project.
 - **Off-thread chunk generation** (`WorkerThreadPool`) — pure, deterministic, with budgeted main-thread insertion and node pooling.
 - **Seam-free terrain** via halo-based analytic normals; **geomorphing LOD** to kill popping.
 - **Floating-origin rebasing** for kilometer-scale precision on foot.
+- **Curved sea-level formula** (`sea_y - r²/2R`) shared between the water shader vertex stage, the swim check, and the submersion depth — eliminating false "underwater" triggers on dry curved terrain.
+- **Cloud occlusion for sky geometry** — a shared `cloud_occlusion.gdshaderinc` include replicates the cloud field in every dome shader (stars, galaxy, moons) via global shader uniforms pushed each frame; Forward+ sky-pass geometry cannot depth-clip, so the occlusion is computed analytically on the GPU.
+- **Data-driven craft catalog** (`CraftLibrary`, 36 recipes) dispatched by the wrist computer with per-category filtering and resource cost display.
 - **Hydrology** (flow map + erosion) baked off-thread on first planet visit; rivers/lakes/waterfalls rendered from it.
 - **Worldspace UI** (wrist computer & options panel) rendered to `SubViewport`s on quads, driven by ray/finger input re-injected as synthetic mouse events.
 - **From-scratch DSP audio** feeding `AudioStreamGenerator`s (oscillators, biquads, envelopes, noise).
@@ -179,7 +215,7 @@ This is a standard Godot project.
 
 ```
 scripts/        GDScript (generators, views, player, XR, audio/, …)
-shaders/        .gdshader (terrain, water, sky, clouds, atmosphere, vignette, waterfall, …)
+shaders/        .gdshader / .gdshaderinc (terrain, water, sky, clouds, atmosphere, vignette, waterfall, …)
 scenes/         Main.tscn, WristComputer.tscn, …
 addons/         third-party addons (if any)
 project.godot   engine config (autoloads, OpenXR, Jolt, D3D12)

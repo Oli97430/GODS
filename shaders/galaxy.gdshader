@@ -6,14 +6,18 @@ render_mode unshaded, blend_add, cull_disabled, depth_draw_never, fog_disabled, 
 // Couleur = teinte par instance (COLOR). Luminosité globale 'night' (0 jour => invisible). Même dôme
 // que les étoiles (depth_draw_never => occlusion terrain sous l'horizon, ciel laisse passer au-dessus).
 
+#include "res://shaders/cloud_occlusion.gdshaderinc"
+
 uniform float night = 0.0;
 varying vec4 vc;
+varying vec3 v_cdir;   // direction MONDE de la galaxie (occlusion par les nuages)
 
 void vertex() {
 	vc = INSTANCE_CUSTOM;
 	// Billboard face-caméra : conserve position (col 3) + échelle (longueurs col 0/1).
 	float sx = length(MODEL_MATRIX[0].xyz);
 	float sy = length(MODEL_MATRIX[1].xyz);
+	v_cdir = normalize(MODEL_MATRIX[3].xyz - CAMERA_POSITION_WORLD);
 	MODELVIEW_MATRIX = VIEW_MATRIX * mat4(
 		MAIN_CAM_INV_VIEW_MATRIX[0] * sx,
 		MAIN_CAM_INV_VIEW_MATRIX[1] * sy,
@@ -38,5 +42,5 @@ void fragment() {
 		arms = smoothstep(0.4, 1.0, s) * smoothstep(0.06, 0.35, r) * smoothstep(1.0, 0.35, r) * 0.5;
 	}
 	ALBEDO = COLOR.rgb;
-	ALPHA = clamp(core + halo + arms, 0.0, 1.0) * night;
+	ALPHA = clamp(core + halo + arms, 0.0, 1.0) * night * cloud_transmittance(v_cdir);
 }

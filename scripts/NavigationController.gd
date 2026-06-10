@@ -71,7 +71,6 @@ var _grab_controller: XRController3D
 var _last_grab_tf := Transform3D.IDENTITY
 var _trigger_was_pressed := false
 var _b_was_pressed := false
-var _surf_back_was_pressed := false   # front du Y GAUCHE (remontée surface) — distinct du B droit (qui sert au vol Iron Man)
 
 func _ready() -> void:
 	info_label.visible = not GameState.xr_active
@@ -223,7 +222,8 @@ func _process(delta: float) -> void:
 		return
 	match GameState.current_scale:
 		GameState.Scale.SURFACE:
-			_process_surface_back_xr()   # locomotion au PlayerController ; ici juste retour (B)
+			pass   # au SOL : aucune touche manette réservée ici (la remontée se fait via la montre → « Remonter » ;
+			       # le bouton Y GAUCHE est LIBRE pour le PlayerController, ex. lampe-torche).
 		GameState.Scale.PLANET:
 			_process_planet_xr(delta)    # grip = tourner · stick = zoom · gâchette = descendre · B = retour
 		_:
@@ -254,17 +254,6 @@ func _process_planet_xr(delta: float) -> void:
 	if b and not _b_was_pressed:
 		_exit_scale()
 	_b_was_pressed = b
-
-# XR à SURFACE : bouton Y GAUCHE (front montant) = remonter en orbite. ⚠️ PAS le B droit : celui-ci
-# sert au toggle vol Iron Man (PlayerController) — c'était le conflit « B remonte au lieu de voler ».
-# (La remontée reste aussi accessible via la montre au poignet → « Remonter ».)
-func _process_surface_back_xr() -> void:
-	if not left_controller.get_is_active():
-		return
-	var y := left_controller.is_button_pressed("by_button")
-	if y and not _surf_back_was_pressed:
-		_exit_scale()
-	_surf_back_was_pressed = y
 
 # Grip enfoncé => la vue suit rigidement la main (rotation + translation 6DOF).
 func _process_grab() -> void:

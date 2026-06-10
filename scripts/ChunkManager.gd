@@ -416,6 +416,11 @@ func _apply_flatten() -> void:
 	if _root:
 		_root.transform = FloatingOrigin.flatten(_flatten_dir, phys_radius)
 
+# Direction-planète de l'ANCRE COURANTE de l'aplatissement (= position-planète du joueur, maj au rebase).
+# Le ciel de surface (soleil/lunes/étoiles) s'y re-synchronise pour ne pas dériver après un rebase.
+func current_anchor_dir() -> Vector3:
+	return _flatten_dir
+
 # REBASE : si le joueur s'éloigne trop de l'origine monde, ré-ancre l'aplatissement
 # sur sa position-planète courante et le recentre. Chunks (espace-planète) inchangés.
 func _maybe_rebase() -> void:

@@ -86,3 +86,6 @@ static func setup_viewport(vp: Viewport) -> void:
 	vp.msaa_3d = Viewport.MSAA_4X
 	vp.screen_space_aa = Viewport.SCREEN_SPACE_AA_DISABLED
 	vp.use_taa = false
+	# Debanding (quasi gratuit : dither en fin de pipeline) : supprime les BANDES dans les dégradés doux —
+	# ciel au crépuscule, brume, halo du soleil — très visibles sur les dalles de casque.
+	vp.use_debanding = true

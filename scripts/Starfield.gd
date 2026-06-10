@@ -40,6 +40,10 @@ var _met_b: Array[Vector3] = []      # direction d'arrivée
 var _met_rng := RandomNumberGenerator.new()
 
 # Bâtit les trois couches du ciel. La projection en repère local (rotation planète) se fait chaque frame.
+# Rebase : ré-ancre le dôme d'étoiles sur la position-planète courante (cohérence ciel↔sol après rebase).
+func set_landing_dir(dir: Vector3) -> void:
+	_landing_dir = dir.normalized()
+
 func setup(systems: Array, current_pos: Vector3, landing_dir: Vector3, player: Node3D) -> void:
 	_player = player
 	_landing_dir = landing_dir.normalized()

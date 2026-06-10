@@ -58,6 +58,12 @@ var _action_button: Button
 const SPEED_PRESETS := [0.0, 1.0, 10.0, 60.0, 600.0]
 const SKIP_FRACS := [0.25, 0.5, 0.75, 0.0]
 const SKIP_NAMES := ["Aube", "Midi", "Soir", "Minuit"]
+# Libellé FR d'une catégorie d'inventaire (en-têtes de groupe du Sac détaillé, CP-INV2).
+const BAG_KIND_LABEL := {
+	"fruit": "Fruits", "food": "Cuisine", "fish": "Poisson", "seed": "Graines", "leaf": "Feuillage",
+	"wood": "Bois", "stone": "Pierre", "ore": "Minerai", "gem": "Gemmes", "metal": "Lingots",
+	"build": "Construction", "gear": "Équipement",
+}
 var _speed_button: Button
 var _skip_button: Button
 var _weather_button: Button
@@ -66,6 +72,11 @@ var _weapon_button: Button   # revolver du joueur (mode combat opt-in)
 var _plasma_button: Button   # fusil à plasma du joueur
 var _grenade_button: Button  # lance-grenades du joueur
 var _res_label: Label        # inventaire de récolte (résumé par catégorie)
+# Onglet Bâtir data-driven (CP-CRAFT) : sélecteur de catégorie + liste de recettes (CraftLibrary).
+var _craft_cat := CraftLibrary.CAT_BUILD
+var _recipe_vbox: VBoxContainer        # conteneur des boutons de recette (repeuplé au changement de catégorie)
+var _recipe_buttons: Array = []        # [{btn:Button, recipe:Dictionary}] pour rafraîchir l'accessibilité (coût)
+var _bag_vbox: VBoxContainer           # liste détaillée du Sac par catégorie (CP-INV2), reconstruite sur Inventory.changed
 var _coop_label: Label       # coop (CP4) : statut réseau
 var _coop_host_btn: Button
 var _coop_join_btn: Button
@@ -94,42 +105,63 @@ func _ready() -> void:
 
 # Construit l'arbre Control dans le SubViewport (extensible : ajouter ici labels/boutons).
 func _build_ui() -> void:
+	# Crispness : on dessine l'UI dans un repère DESIGN fixe (300×580) puis on la met à l'échelle pour remplir
+	# le SubViewport HAUTE RÉSOLUTION (540×1044) => texte net, mise en page inchangée, zéro retouche de police.
+	# (Le poke 3D→2D utilise la taille du SubViewport => reste correct, Godot pique l'input à travers l'échelle.)
+	var design := Vector2(300.0, 580.0)
 	var root := Panel.new()
-	root.size = Vector2(_subviewport.size)
+	root.size = design
+	root.scale = Vector2(_subviewport.size) / design
+	root.theme = _make_theme()                    # thème cohérent (boutons arrondis, onglets, contraste)
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.04, 0.06, 0.10, 0.92)
-	sb.set_corner_radius_all(18)
-	sb.set_border_width_all(3)
-	sb.border_color = Color(0.30, 0.60, 0.90, 0.9)
+	sb.bg_color = Color(0.045, 0.065, 0.105, 0.96)
+	sb.set_corner_radius_all(20)
+	sb.set_border_width_all(2)
+	sb.border_color = Color(0.30, 0.78, 0.98, 0.85)
+	sb.shadow_color = Color(0.10, 0.55, 0.85, 0.35)
+	sb.shadow_size = 6
 	root.add_theme_stylebox_override("panel", sb)
 	_subviewport.add_child(root)
 
 	var margin := MarginContainer.new()
 	margin.set_anchors_preset(Control.PRESET_FULL_RECT)
-	margin.add_theme_constant_override("margin_left", 18)
-	margin.add_theme_constant_override("margin_right", 18)
-	margin.add_theme_constant_override("margin_top", 16)
-	margin.add_theme_constant_override("margin_bottom", 16)
+	margin.add_theme_constant_override("margin_left", 16)
+	margin.add_theme_constant_override("margin_right", 16)
+	margin.add_theme_constant_override("margin_top", 12)
+	margin.add_theme_constant_override("margin_bottom", 14)
 	root.add_child(margin)
 
-	# Refonte UI/UX : l'écran est ÉTROIT et HAUT (300×580). Une pile unique débordait (la coop
-	# passait hors écran). On range les contrôles par thème dans un TabContainer, et on garde le
-	# bouton contextuel TOUJOURS visible sous les onglets.
+	# Pile : en-tête + TabContainer (contrôles rangés par thème) + bouton contextuel TOUJOURS visible dessous.
 	var vbox := VBoxContainer.new()
 	vbox.set_anchors_preset(Control.PRESET_FULL_RECT)
-	vbox.add_theme_constant_override("separation", 6)
+	vbox.add_theme_constant_override("separation", 8)
 	margin.add_child(vbox)
 
-	_add_label(vbox, "ORDINATEUR", 18, Color(0.60, 0.85, 1.0))
+	# En-tête : pastille d'accent + titre + filet lumineux dessous (lisibilité + cachet « ordinateur »).
+	var head := HBoxContainer.new()
+	head.add_theme_constant_override("separation", 8)
+	vbox.add_child(head)
+	var dot := Panel.new()
+	dot.custom_minimum_size = Vector2(10, 10)
+	var dsb := StyleBoxFlat.new()
+	dsb.bg_color = Color(0.35, 0.95, 0.75)
+	dsb.set_corner_radius_all(5)
+	dot.add_theme_stylebox_override("panel", dsb)
+	dot.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	head.add_child(dot)
+	var title := _add_label(head, "ORDINATEUR DE BORD", 17, Color(0.66, 0.88, 1.0))
+	title.autowrap_mode = TextServer.AUTOWRAP_OFF   # titre sur une seule ligne
+	var rule := Panel.new()
+	rule.custom_minimum_size = Vector2(0, 2)
+	var rsb := StyleBoxFlat.new()
+	rsb.bg_color = Color(0.30, 0.78, 0.98, 0.55)
+	rule.add_theme_stylebox_override("panel", rsb)
+	vbox.add_child(rule)
 
 	var tabs := TabContainer.new()
 	tabs.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	tabs.add_theme_font_size_override("font_size", 15)   # libellés d'onglets lisibles sur écran étroit
 	tabs.tab_alignment = TabBar.ALIGNMENT_CENTER
-	var tab_sb := StyleBoxFlat.new()
-	tab_sb.bg_color = Color(0.03, 0.05, 0.10, 0.6)
-	tab_sb.set_corner_radius_all(8)
-	tabs.add_theme_stylebox_override("panel", tab_sb)
 	vbox.add_child(tabs)
 
 	# --- Onglet SONDE : lectures (échelle / planète / coords / seed / heure / météo / combat) ---
@@ -157,59 +189,52 @@ func _build_ui() -> void:
 	_lamp_button = _mk_tool_button("Lampe OFF", _on_lamp, 18, 50)
 	t_time.add_child(_lamp_button)
 
-	# --- Onglet SAC : inventaire de récolte + outil + Manger / Décomposer en graines (au choix) ---
+	# --- Onglet SAC (CP-INV2) : en-tête compact + outil + actions rapides (auto) + LISTE DÉTAILLÉE défilante
+	# par catégorie (pastille couleur + nom ×N + actions PAR OBJET : Manger / →Graine / Planter / Poser). ---
 	var t_bag := _make_tab(tabs, "Sac")
-	_res_label = _add_label(t_bag, "Sac : vide", 15, Color(0.75, 0.92, 0.70))
-	_res_label.custom_minimum_size = Vector2(0, 64)   # réserve de la place : le sac peut lister plusieurs catégories
-	var tool_btn := _mk_tool_button("Outil (hache / pioche)", _on_tool, 16, 52)
+	_res_label = _add_label(t_bag, "Sac : vide", 14, Color(0.78, 0.92, 0.72))
+	var tool_btn := _mk_tool_button("⛏ Outil (hache / pioche)", _on_tool, 14, 40)
 	t_bag.add_child(tool_btn)
 	var food_row := HBoxContainer.new()
 	food_row.add_theme_constant_override("separation", 6)
 	t_bag.add_child(food_row)
-	var eat_btn := _mk_tool_button("Manger", _on_eat, 16, 50)
-	food_row.add_child(eat_btn)
-	var seed_btn := _mk_tool_button("→ Graines", _on_decompose, 16, 50)
-	food_row.add_child(seed_btn)
+	food_row.add_child(_mk_tool_button("🍴 Manger", _on_eat, 14, 36))          # auto : mange le plus nourrissant
+	food_row.add_child(_mk_tool_button("🌱 → Graines", _on_decompose, 14, 36)) # auto : décompose un fruit
+	# Liste détaillée : un groupe par catégorie (KIND_ORDER), une ligne par objet, actions contextuelles.
+	var bag_scroll := ScrollContainer.new()
+	bag_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	bag_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	t_bag.add_child(bag_scroll)
+	_bag_vbox = VBoxContainer.new()
+	_bag_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_bag_vbox.add_theme_constant_override("separation", 3)
+	bag_scroll.add_child(_bag_vbox)
+	_populate_bag()
+	if not Inventory.changed.is_connected(_populate_bag):
+		Inventory.changed.connect(_populate_bag)
 
-	# --- Onglet BÂTIR : fonderie + construction + blocs (Minecraft) + jardinage (déplacés du Sac : tient dans le panneau) ---
+	# --- Onglet BÂTIR (CP-CRAFT) : catalogue de craft DATA-DRIVEN (CraftLibrary). Sélecteur de catégorie
+	# en haut, liste de recettes (nom + coût, grisé si non finançable) défilante dessous, jardinage en bas. ---
 	var t_build := _make_tab(tabs, "Bâtir")
-	# Fonderie (CP4) : transformer les minerais en lingots.
-	_add_label(t_build, "— Fonderie (2 minerais → lingot) —", 12, Color(0.75, 0.62, 0.50))
-	var smelt_row := HBoxContainer.new()
-	smelt_row.add_theme_constant_override("separation", 4)
-	t_build.add_child(smelt_row)
-	smelt_row.add_child(_mk_tool_button("Fer", _on_smelt_iron, 13, 38))
-	smelt_row.add_child(_mk_tool_button("Cuivre", _on_smelt_copper, 13, 38))
-	smelt_row.add_child(_mk_tool_button("Or", _on_smelt_gold, 13, 38))
-	# Construction (CP4) : placer des pièces dans le monde.
-	_add_label(t_build, "— Construction —", 12, Color(0.70, 0.62, 0.48))
-	var craft_r1 := HBoxContainer.new()
-	craft_r1.add_theme_constant_override("separation", 4)
-	t_build.add_child(craft_r1)
-	craft_r1.add_child(_mk_tool_button("Planche", _on_craft_plank, 13, 38))
-	craft_r1.add_child(_mk_tool_button("Mur", _on_craft_wall, 13, 38))
-	craft_r1.add_child(_mk_tool_button("Toit", _on_craft_roof, 13, 38))
-	var craft_r2 := HBoxContainer.new()
-	craft_r2.add_theme_constant_override("separation", 4)
-	t_build.add_child(craft_r2)
-	craft_r2.add_child(_mk_tool_button("Pilier", _on_craft_pillar, 13, 38))
-	craft_r2.add_child(_mk_tool_button("Porte", _on_craft_door, 13, 38))
-	craft_r2.add_child(_mk_tool_button("Lanterne", _on_craft_lamp, 13, 38))
-	# Blocs cubiques (façon Minecraft) : se posent sur grille + s'empilent sur la face visée.
-	_add_label(t_build, "— Blocs (empilables, façon Minecraft) —", 12, Color(0.60, 0.72, 0.58))
-	var blk_r1 := HBoxContainer.new()
-	blk_r1.add_theme_constant_override("separation", 4)
-	t_build.add_child(blk_r1)
-	blk_r1.add_child(_mk_tool_button("Bois ×4", _on_block_wood, 13, 38))
-	blk_r1.add_child(_mk_tool_button("Pierre ×4", _on_block_stone, 13, 38))
-	var blk_r2 := HBoxContainer.new()
-	blk_r2.add_theme_constant_override("separation", 4)
-	t_build.add_child(blk_r2)
-	blk_r2.add_child(_mk_tool_button("Feuillage ×4", _on_block_leaf, 13, 38))
-	blk_r2.add_child(_mk_tool_button("Fer ×2", _on_block_iron, 13, 38))
-	# Jardinage (CP4) : replanter des graines → arbres.
-	_add_label(t_build, "— Jardinage —", 12, Color(0.55, 0.72, 0.48))
-	t_build.add_child(_mk_tool_button("Planter une graine", _on_plant, 13, 38))
+	var cat_grid := GridContainer.new()
+	cat_grid.columns = 3
+	cat_grid.add_theme_constant_override("h_separation", 4)
+	cat_grid.add_theme_constant_override("v_separation", 4)
+	t_build.add_child(cat_grid)
+	for cat in CraftLibrary.CATEGORIES:
+		cat_grid.add_child(_mk_tool_button(cat, _on_pick_cat.bind(cat), 12, 30))
+	var recipe_scroll := ScrollContainer.new()
+	recipe_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	recipe_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	t_build.add_child(recipe_scroll)
+	_recipe_vbox = VBoxContainer.new()
+	_recipe_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_recipe_vbox.add_theme_constant_override("separation", 4)
+	recipe_scroll.add_child(_recipe_vbox)
+	t_build.add_child(_mk_tool_button("🌱 Planter une graine", _on_plant, 13, 36))
+	_populate_recipes()
+	if not Inventory.changed.is_connected(_refresh_recipe_affordability):
+		Inventory.changed.connect(_refresh_recipe_affordability)
 
 	# --- Onglet COOP : multijoueur + changement de système + armes (combat opt-in) ---
 	var t_coop := _make_tab(tabs, "Coop")
@@ -244,6 +269,69 @@ func _build_ui() -> void:
 	_action_button.disabled = true
 	_action_button.pressed.connect(_on_action_btn)
 	vbox.add_child(_action_button)
+
+# Thème cohérent de l'ordinateur de poignet : palette sombre + accent cyan, boutons arrondis avec états
+# (survol / pressé / désactivé) et onglets nets. Centralise l'esthétique => tous les onglets en bénéficient.
+func _make_theme() -> Theme:
+	var accent := Color(0.32, 0.80, 0.98)
+	var accent_dim := Color(0.18, 0.42, 0.56)
+	var card := Color(0.12, 0.17, 0.25)
+	var card_hi := Color(0.18, 0.27, 0.38)
+	var text := Color(0.90, 0.94, 0.98)
+	var text_dim := Color(0.58, 0.68, 0.80)
+	var th := Theme.new()
+	# --- Boutons : carte arrondie + liseré, survol éclairci, pressé accentué, désactivé estompé ---
+	th.set_stylebox("normal", "Button", _btn_box(card, accent_dim, 1))
+	th.set_stylebox("hover", "Button", _btn_box(card_hi, accent, 2))
+	th.set_stylebox("pressed", "Button", _btn_box(accent_dim, accent, 2))
+	th.set_stylebox("disabled", "Button", _btn_box(Color(0.08, 0.10, 0.13, 0.7), Color(0.16, 0.20, 0.26), 1))
+	th.set_stylebox("focus", "Button", StyleBoxEmpty.new())   # pas d'anneau de focus (poke VR)
+	th.set_color("font_color", "Button", text)
+	th.set_color("font_hover_color", "Button", Color.WHITE)
+	th.set_color("font_pressed_color", "Button", Color.WHITE)
+	th.set_color("font_disabled_color", "Button", Color(0.44, 0.52, 0.62))
+	# --- Onglets : sélectionné en carte haute + accent, inactifs estompés, contenu en panneau arrondi ---
+	th.set_stylebox("tab_selected", "TabContainer", _tab_box(card_hi, accent))
+	th.set_stylebox("tab_unselected", "TabContainer", _tab_box(Color(0.07, 0.10, 0.15, 0.5), Color(0, 0, 0, 0)))
+	th.set_stylebox("tab_hovered", "TabContainer", _tab_box(card, accent_dim))
+	th.set_stylebox("tabbar_background", "TabContainer", StyleBoxEmpty.new())
+	var panel_box := StyleBoxFlat.new()
+	panel_box.bg_color = Color(0.06, 0.09, 0.14, 0.85)
+	panel_box.set_corner_radius_all(10)
+	panel_box.set_content_margin_all(8)
+	th.set_stylebox("panel", "TabContainer", panel_box)
+	th.set_color("font_selected_color", "TabContainer", accent)
+	th.set_color("font_unselected_color", "TabContainer", text_dim)
+	th.set_color("font_hovered_color", "TabContainer", text)
+	th.set_color("font_color", "Label", text)
+	return th
+
+# Boîte de bouton arrondie (fond + liseré + marges internes confortables pour le poke).
+func _btn_box(bg: Color, border: Color, bw: int) -> StyleBoxFlat:
+	var s := StyleBoxFlat.new()
+	s.bg_color = bg
+	s.set_corner_radius_all(9)
+	s.set_border_width_all(bw)
+	s.border_color = border
+	s.content_margin_left = 8.0
+	s.content_margin_right = 8.0
+	s.content_margin_top = 5.0
+	s.content_margin_bottom = 5.0
+	return s
+
+# Boîte d'onglet : coins SUPÉRIEURS arrondis + soulignement d'accent (état sélectionné).
+func _tab_box(bg: Color, underline: Color) -> StyleBoxFlat:
+	var s := StyleBoxFlat.new()
+	s.bg_color = bg
+	s.corner_radius_top_left = 8
+	s.corner_radius_top_right = 8
+	s.border_width_bottom = 3 if underline.a > 0.01 else 0
+	s.border_color = underline
+	s.content_margin_left = 9.0
+	s.content_margin_right = 9.0
+	s.content_margin_top = 5.0
+	s.content_margin_bottom = 5.0
+	return s
 
 func _add_label(parent: Node, text: String, font_size: int, color: Color) -> Label:
 	var l := Label.new()
@@ -684,20 +772,18 @@ func _on_tool() -> void:
 	if p != null and p.has_method("toggle_tool"):
 		p.toggle_tool()
 
-# Résumé compact de l'inventaire de récolte, par catégorie (affiché sur la montre).
+# En-tête compact du Sac : total d'objets + nombre de types (le détail est dans la liste défilante).
 func _res_summary() -> String:
-	var by_kind := {}
+	var total := 0
+	var types := 0
 	for id in Inventory.resources:
-		var k := HarvestLibrary.item_kind(id)
-		by_kind[k] = int(by_kind.get(k, 0)) + int(Inventory.resources[id])
-	if by_kind.is_empty():
+		var n := int(Inventory.resources[id])
+		if n > 0:
+			total += n
+			types += 1
+	if total == 0:
 		return "Sac : vide"
-	var names := {"fruit": "Fruits", "seed": "Graines", "leaf": "Feuilles", "wood": "Bois", "stone": "Pierre", "ore": "Minerai", "gem": "Gemmes", "metal": "Lingots", "build": "Constr."}
-	var parts: Array = []
-	for k in HarvestLibrary.KIND_ORDER:
-		if by_kind.has(k):
-			parts.append("%s %d" % [String(names.get(k, k)), int(by_kind[k])])
-	return "Sac : " + "  ·  ".join(parts)
+	return "Sac : %d objets · %d types" % [total, types]
 
 # Manger : consomme le fruit comestible le plus nourrissant en stock => soin du joueur.
 func _on_eat() -> void:
@@ -713,8 +799,8 @@ func _on_eat() -> void:
 		return
 	if Inventory.consume_resource(best, 1):
 		var p = _player_ref()
-		if p != null and p.has_method("heal"):
-			p.heal(best_heal)
+		if p != null and p.has_method("eat"):
+			p.eat(best_heal)
 
 # Décomposer : transforme un fruit en stock en SA graine (alternative à Manger — au choix du joueur).
 func _on_decompose() -> void:
@@ -732,70 +818,178 @@ func _on_decompose() -> void:
 	if Inventory.consume_resource(fruit, 1):
 		Inventory.add_resource(seed_id, 1)
 
-# --- Fonderie : transformer les minerais bruts en lingots ---
-func _on_smelt_iron() -> void:
-	ui_confirm.emit()
-	_craft_single("ore_iron", 2, "ingot_iron")
+# --- Sac DÉTAILLÉ (CP-INV2) : reconstruit la liste à plat, groupée par catégorie, avec actions par objet ---
 
-func _on_smelt_copper() -> void:
-	ui_confirm.emit()
-	_craft_single("ore_copper", 2, "ingot_copper")
+# (Re)construit la liste du Sac : un en-tête par catégorie (KIND_ORDER), une ligne par objet trié par quantité
+# décroissante. Reconstruit à l'ouverture du panneau ET sur Inventory.changed (récolte / craft / consommation).
+func _populate_bag() -> void:
+	if _bag_vbox == null:
+		return
+	for c in _bag_vbox.get_children():
+		c.queue_free()
+	var by_kind := {}
+	for id in Inventory.resources:
+		if int(Inventory.resources[id]) <= 0:
+			continue
+		var k := HarvestLibrary.item_kind(id)
+		if not by_kind.has(k):
+			by_kind[k] = []
+		(by_kind[k] as Array).append(id)
+	if by_kind.is_empty():
+		var empty := _add_label(_bag_vbox, "Sac vide — récolte des ressources dans le monde (hache / pioche).", 12, Color(0.62, 0.70, 0.62))
+		empty.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		return
+	for k in HarvestLibrary.KIND_ORDER:
+		if not by_kind.has(k):
+			continue
+		var ids: Array = by_kind[k]
+		ids.sort_custom(func(a, b): return int(Inventory.resources[a]) > int(Inventory.resources[b]))
+		_bag_vbox.add_child(_bag_category_header(k))
+		for id in ids:
+			_bag_vbox.add_child(_bag_item_row(String(id)))
 
-func _on_smelt_gold() -> void:
-	ui_confirm.emit()
-	_craft_single("ore_gold", 2, "ingot_gold")
+# En-tête de catégorie (libellé FR en capitales, ton sourd).
+func _bag_category_header(kind: String) -> Label:
+	var l := Label.new()
+	l.text = String(BAG_KIND_LABEL.get(kind, kind)).to_upper()
+	l.add_theme_font_size_override("font_size", 11)
+	l.add_theme_color_override("font_color", Color(0.58, 0.72, 0.60))
+	return l
 
-# --- Construction : fabriquer + entrer en mode construction ---
-func _on_craft_plank() -> void:
-	ui_confirm.emit()
-	_craft_consume(HarvestLibrary.KIND_WOOD, 3, "plank")
-	_enter_build("plank")
+# Ligne d'objet : pastille couleur + « Nom ×N » + boutons d'action CONTEXTUELS (selon la catégorie).
+func _bag_item_row(id: String) -> HBoxContainer:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 5)
+	var sw := ColorRect.new()
+	sw.color = HarvestLibrary.item_color(id)
+	sw.custom_minimum_size = Vector2(15, 15)
+	sw.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(sw)
+	var name_l := Label.new()
+	name_l.text = "%s ×%d" % [HarvestLibrary.item_name(id), int(Inventory.resources[id])]
+	name_l.add_theme_font_size_override("font_size", 13)
+	name_l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	name_l.clip_text = true
+	row.add_child(name_l)
+	var kind := HarvestLibrary.item_kind(id)
+	if HarvestLibrary.item_heal(id) > 0.0:                                   # comestible (fruit / plat) -> soin
+		row.add_child(_mk_bag_action("🍴", _bag_eat.bind(id)))
+	if kind == HarvestLibrary.KIND_FRUIT and HarvestLibrary.seed_for_fruit(id) != "":
+		row.add_child(_mk_bag_action("🌱", _bag_decompose.bind(id)))         # fruit -> sa graine
+	if kind == HarvestLibrary.KIND_SEED and HarvestLibrary.is_plantable(id):
+		row.add_child(_mk_bag_action("Planter", _bag_plant.bind(id)))        # graine -> mode plantation
+	if kind == HarvestLibrary.KIND_BUILD:
+		row.add_child(_mk_bag_action("Poser", _bag_place.bind(id)))          # pièce construite -> mode pose
+	if kind == HarvestLibrary.KIND_GEAR:
+		row.add_child(_mk_bag_action("Équiper", _bag_equip.bind(id)))        # équipement -> en main
+	return row
 
-func _on_craft_wall() -> void:
-	ui_confirm.emit()
-	_craft_consume(HarvestLibrary.KIND_STONE, 5, "wall_stone")
-	_enter_build("wall_stone")
+# Petit bouton d'action d'une ligne d'objet (compact).
+func _mk_bag_action(txt: String, cb: Callable) -> Button:
+	var b := Button.new()
+	b.text = txt
+	b.add_theme_font_size_override("font_size", 12)
+	b.custom_minimum_size = Vector2(0, 26)
+	b.clip_text = true
+	b.pressed.connect(cb)
+	return b
 
-func _on_craft_roof() -> void:
+# Actions PAR OBJET (id précis) : manger / décomposer / planter / poser. Inventory.changed -> liste reconstruite.
+func _bag_eat(id: String) -> void:
 	ui_confirm.emit()
-	_craft_consume(HarvestLibrary.KIND_LEAF, 4, "roof_thatch")
-	_enter_build("roof_thatch")
+	var h := HarvestLibrary.item_heal(id)
+	if h <= 0.0:
+		return
+	if Inventory.consume_resource(id, 1):
+		var p = _player_ref()
+		if p != null and p.has_method("eat"):
+			p.eat(h)
 
-func _on_craft_pillar() -> void:
+func _bag_decompose(id: String) -> void:
 	ui_confirm.emit()
-	_craft_single("ingot_iron", 3, "pillar_iron")
-	_enter_build("pillar_iron")
+	var seed_id := HarvestLibrary.seed_for_fruit(id)
+	if seed_id == "":
+		return
+	if Inventory.consume_resource(id, 1):
+		Inventory.add_resource(seed_id, 1)
 
-func _on_craft_door() -> void:
+func _bag_plant(id: String) -> void:
 	ui_confirm.emit()
-	_craft_single("ingot_copper", 2, "door_copper")
-	_enter_build("door_copper")
+	if Inventory.resource_count(id) > 0 and _surface_view != null and _surface_view.has_method("start_plant"):
+		_surface_view.start_plant(id)
 
-func _on_craft_lamp() -> void:
+func _bag_place(id: String) -> void:
 	ui_confirm.emit()
-	_craft_single("ingot_gold", 1, "lamp_gold")
-	_enter_build("lamp_gold")
+	_enter_build(id)
 
-# --- Blocs cubiques (façon Minecraft) : fabriquent un PETIT LOT puis entrent en construction ---
-func _on_block_wood() -> void:
+# Équipe un équipement porté (CP-PÊCHE : la canne à pêche → mode pêche). Toggle via la même action.
+func _bag_equip(id: String) -> void:
 	ui_confirm.emit()
-	_craft_batch(HarvestLibrary.KIND_WOOD, 1, "block_wood", 4)
-	_enter_build("block_wood")
+	var p = _player_ref()
+	if p == null:
+		return
+	if id == "fishing_rod" and p.has_method("toggle_rod"):
+		p.toggle_rod()
 
-func _on_block_stone() -> void:
-	ui_confirm.emit()
-	_craft_batch(HarvestLibrary.KIND_STONE, 1, "block_stone", 4)
-	_enter_build("block_stone")
+# --- Onglet Bâtir DATA-DRIVEN (CP-CRAFT) : catégorie → liste de recettes (CraftLibrary) → dispatch ---
 
-func _on_block_leaf() -> void:
+# Change la catégorie affichée puis repeuple la liste de recettes.
+func _on_pick_cat(cat: String) -> void:
 	ui_confirm.emit()
-	_craft_batch(HarvestLibrary.KIND_LEAF, 2, "block_leaf", 4)
-	_enter_build("block_leaf")
+	_craft_cat = cat
+	_populate_recipes()
 
-func _on_block_iron() -> void:
+# (Re)génère les boutons de recette de la catégorie courante (un bouton par recette de CraftLibrary).
+func _populate_recipes() -> void:
+	if _recipe_vbox == null:
+		return
+	for c in _recipe_vbox.get_children():
+		c.queue_free()
+	_recipe_buttons.clear()
+	for r in CraftLibrary.recipes_for(_craft_cat):
+		var label := "%s  (%s)" % [String(r.name), CraftLibrary.cost_text(r)]
+		var b := _mk_tool_button(label, _craft_recipe.bind(r), 13, 34)
+		_recipe_vbox.add_child(b)
+		_recipe_buttons.append({"btn": b, "recipe": r})
+	_refresh_recipe_affordability()
+
+# Grise les recettes non finançables (appelé au peuplement + sur Inventory.changed).
+func _refresh_recipe_affordability() -> void:
+	for e in _recipe_buttons:
+		var b: Button = e.btn
+		if is_instance_valid(b):
+			b.disabled = not _can_afford(e.recipe)
+
+# Vrai si l'inventaire couvre le coût d'une recette (catégorie de ressource OU id exact).
+func _can_afford(r: Dictionary) -> bool:
+	var need := int(r.qty)
+	if bool(r.by_kind):
+		var total := 0
+		for id in Inventory.resources:
+			if HarvestLibrary.item_kind(id) == String(r.src):
+				total += int(Inventory.resources[id])
+		return total >= need
+	return Inventory.resource_count(String(r.src)) >= need
+
+# Exécute une recette via les helpers de craft : consomme l'entrée, produit la sortie, et entre en
+# mode POSE si « place ». (Helpers _craft_single/_consume/_batch/_batch_id + _enter_build inchangés.)
+func _craft_recipe(r: Dictionary) -> void:
 	ui_confirm.emit()
-	_craft_batch_id("ingot_iron", 1, "block_iron", 2)
-	_enter_build("block_iron")
+	var out_n := int(r.get("out_n", 1))
+	var out_id := String(r.id)
+	if bool(r.by_kind):
+		if out_n > 1:
+			_craft_batch(String(r.src), int(r.qty), out_id, out_n)
+		else:
+			_craft_consume(String(r.src), int(r.qty), out_id)
+	else:
+		if out_n > 1:
+			_craft_batch_id(String(r.src), int(r.qty), out_id, out_n)
+		else:
+			_craft_single(String(r.src), int(r.qty), out_id)
+	if bool(r.place):
+		_enter_build(out_id)
+	_refresh_recipe_affordability()
 
 # --- Jardinage : replanter une graine ---
 func _on_plant() -> void:

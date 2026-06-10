@@ -51,6 +51,13 @@ const SWIM_ACCEL := 3.0        # réactivité aquatique (drag : on glisse jusqu'
 const BUOYANCY := 1.2          # m/s² — flottabilité douce : on remonte tout seul, tête vers la surface
 const SWIM_ENTER_DEPTH := 1.4  # m d'eau au-dessus des pieds pour passer en nage (~hauteur de poitrine)
 const SWIM_EXIT_DEPTH := 1.0   # m : sous ce seuil + pieds au fond => on repose le pied et on remarche (bord/plage)
+# Courbure de la mer : le terrain (collision) ET le plan d'eau (shader water_surface) suivent la sphère et
+# DESCENDENT en s'éloignant de l'origine (drop = r²/2R, r = distance horizontale au point tangent recentré
+# au rebase). Sans en tenir compte, un plan d'eau PLAT à Y=0 plongeait à tort le joueur en nage sur du sol
+# sec courbé sous 0 (jusqu'à ~60 m au bord du rebase). On reconstitue donc la hauteur d'eau LOCALE exactement
+# comme le rendu => la nage déclenche pile quand les pieds passent sous l'eau VISIBLE. Réglés par SurfaceView.
+var _sea_y_world := 0.0     # Y monde du niveau de mer au point tangent (= PlanetGenerator.sea_level_height)
+var _sea_radius := 0.0      # rayon physique de la planète (0 = courbure off => repli sur le plan plat SEA_Y)
 
 var _gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity", 9.8)
 var _active := false
@@ -73,9 +80,10 @@ var _fly_prev := false  # front montant du toggle vol (touche F / bouton B XR)
 var _repulsor: OmniLight3D   # lueur de repulseur (armure invisible) : éclaire le sol sous le joueur en vol
 var _speed_streaks   # lignes de vitesse Iron Man (SpeedStreaks.gd) — non typé : appel dynamique de update_streaks
 var _vignette        # vignette de confort VR (ComfortVignette.gd) — se resserre avec la vitesse (anti-nausée)
-var _lamp: SpotLight3D   # lampe nocturne : suit la caméra (bureau) / la main droite (XR) ; activable montre ou touche L
+var _lamp: SpotLight3D   # lampe-torche nocturne : suit la caméra (bureau) / la MAIN GAUCHE (XR) ; touche L / bouton Y gauche / montre
 var _lamp_on := false
-var _lamp_prev := false  # front montant de la touche L (bureau)
+var _lamp_prev := false  # front montant : touche L (bureau) OU bouton Y gauche (XR)
+var _torch: Node3D       # modèle de torche TENUE en main gauche (XR) : grip + tête émissive, visible quand la lampe est allumée
 # Combat OPT-IN (mode FPS VR) : armes équipables (revolver + plasma). Dégainé => zéro effet (contemplatif).
 var _revolver             # Blaster.gd configuré en revolver « blaster » (cyan)
 var _plasma               # Blaster.gd configuré en fusil à plasma (vert, zoom avancé)
@@ -83,6 +91,8 @@ var _grenade              # Blaster.gd en mode PROJECTILE : lance-grenades (expl
 var _harvest_tool         # HarvestTool : outil de récolte UNIQUE (abat les arbres ET casse les rochers)
 var _tool = null          # outil équipé (node) ou null — EXCLUSIF avec les armes
 var _tool_prev := false   # front touche H (bureau)
+var _rod                  # FishingRod : canne à pêche (CP-PÊCHE) — équipée depuis le Sac, EXCLUSIVE avec armes/outil
+var _rod_on := false      # canne en main (mode pêche actif)
 var _blaster              # arme ACTIVE (= _revolver / _plasma / _grenade ; null = dégainé)
 var _plasma_scope         # ScopeView.gd : lunette VR (zoom optique SubViewport) montée sur le plasma
 var _armed := false       # une arme est équipée
@@ -259,6 +269,10 @@ func _ready() -> void:
 	_harvest_tool = preload("res://scripts/Tool.gd").new()
 	_harvest_tool.visible = false
 	add_child(_harvest_tool)
+	# Canne à pêche (CP-PÊCHE) — modèle procédural, attachée à la main à l'équipement (comme l'outil).
+	_rod = preload("res://scripts/FishingRod.gd").new()
+	_rod.visible = false
+	add_child(_rod)
 	_blaster = null
 	# Bouclier d'énergie main gauche (déployé avec le blaster).
 	_shield = preload("res://scripts/Shield.gd").new()
@@ -302,6 +316,7 @@ func enter_xr(xr_origin: Node3D, xr_camera: Camera3D, left: XRController3D, righ
 	_xr_origin.transform = Transform3D.IDENTITY
 	# Bouclier RIGIDEMENT solidaire de la main gauche (l'arme active s'attache à la main droite à l'équipement).
 	_attach_weapon_to(_shield, _left, Transform3D(Basis(), Vector3(0.0, 0.0, -0.08)))
+	_build_torch()   # lampe-torche TENUE en main gauche (modèle visible + faisceau), basculée par le bouton Y gauche
 	set_physics_process(true)
 	set_process_unhandled_input(false)
 
@@ -315,6 +330,11 @@ func exit() -> void:
 	_lamp_on = false
 	if _lamp:
 		_lamp.visible = false
+	if _torch:
+		_torch.visible = false
+	_rod_on = false
+	if _rod:
+		_rod.visible = false
 	_armed = false
 	_blaster = null
 	for g in [_revolver, _plasma, _grenade]:
@@ -368,11 +388,50 @@ func exit() -> void:
 func get_active_camera() -> Camera3D:
 	return _xr_camera if _xr else _eyes
 
-# Lampe nocturne : bascule on/off (appelée par la montre XR ou la touche L bureau). Retourne le nouvel état.
+# Construit la torche TENUE en main gauche (XR) : manche + tête émissive, solidaires de la manette gauche
+# (pointe vers l'avant -Z = là où la main pointe). Masquée tant que la lampe est éteinte.
+func _build_torch() -> void:
+	if _torch != null or _left == null:
+		return
+	_torch = Node3D.new()
+	var grip := MeshInstance3D.new()
+	var gm := CylinderMesh.new()
+	gm.top_radius = 0.018
+	gm.bottom_radius = 0.022
+	gm.height = 0.14
+	grip.mesh = gm
+	var gmat := StandardMaterial3D.new()
+	gmat.albedo_color = Color(0.17, 0.14, 0.12)
+	gmat.roughness = 0.7
+	grip.material_override = gmat
+	grip.rotation_degrees = Vector3(-90.0, 0.0, 0.0)   # axe du cylindre (Y) -> avant (-Z)
+	grip.position = Vector3(0.0, 0.0, -0.07)
+	_torch.add_child(grip)
+	var head := MeshInstance3D.new()
+	var hm := CylinderMesh.new()
+	hm.top_radius = 0.032
+	hm.bottom_radius = 0.02
+	hm.height = 0.045
+	head.mesh = hm
+	var hmat := StandardMaterial3D.new()
+	hmat.albedo_color = Color(0.85, 0.86, 0.9)
+	hmat.emission_enabled = true
+	hmat.emission = Color(1.0, 0.96, 0.85)
+	hmat.emission_energy_multiplier = 2.2
+	head.material_override = hmat
+	head.rotation_degrees = Vector3(-90.0, 0.0, 0.0)
+	head.position = Vector3(0.0, 0.0, -0.16)
+	_torch.add_child(head)
+	_left.add_child(_torch)
+	_torch.visible = _lamp_on
+
+# Lampe-torche nocturne : bascule on/off (touche L bureau, bouton Y gauche XR, ou montre). Retourne le nouvel état.
 func toggle_lamp() -> bool:
 	_lamp_on = not _lamp_on
 	if _lamp:
 		_lamp.visible = _lamp_on
+	if _torch:
+		_torch.visible = _lamp_on
 	_haptic(0.2, 0.05, 0.0, 0)
 	return _lamp_on
 
@@ -402,6 +461,8 @@ func active_tool() -> String:
 func _equip_tool(t) -> void:
 	if t != null and _armed:
 		_equip(null)   # une seule chose en main droite : range l'arme d'abord
+	if t != null and _rod_on:
+		_holster_rod()   # … et la canne à pêche (exclusif)
 	_holster_tool()
 	_tool = t
 	if t != null:
@@ -418,11 +479,69 @@ func _holster_tool() -> void:
 func _tool_offset() -> Transform3D:
 	return Transform3D.IDENTITY if _xr else Transform3D(Basis(), Vector3(0.12, -0.10, -0.25))
 
+# --- Canne à pêche (CP-PÊCHE) : équipe / range. EXCLUSIVE avec les armes ET l'outil de récolte. ---
+func toggle_rod() -> bool:
+	if _rod_on:
+		_holster_rod()
+	else:
+		if _armed:
+			_equip(null)        # une seule chose en main droite : range l'arme
+		if _tool != null:
+			_holster_tool()     # … et l'outil
+		_rod_on = true
+		if _rod:
+			_rod.visible = true
+			_attach_weapon_to(_rod, _weapon_target(), _tool_offset())
+		_haptic(0.3, 0.06, 0.0, 1)
+	return _rod_on
+
+func _holster_rod() -> void:
+	if _rod:
+		_rod.visible = false
+		_attach_weapon_to(_rod, self, Transform3D.IDENTITY)
+	_rod_on = false
+
+# Mode pêche actif (canne en main) — lu par Fishing.gd.
+func is_fishing() -> bool:
+	return _rod_on
+
+# Bout de la canne (origine du fil) en MONDE.
+func rod_tip_world() -> Vector3:
+	if _rod and _rod.tip and is_instance_valid(_rod.tip):
+		return _rod.tip.global_position
+	return tool_hand_point()
+
+# Direction de visée de la canne (vers l'avant -Z du modèle, = là où pointe la main / la caméra).
+func rod_aim_dir() -> Vector3:
+	if _rod and is_instance_valid(_rod) and _rod.visible:
+		return -_rod.global_transform.basis.z
+	var cam := get_active_camera()
+	return -cam.global_transform.basis.z if cam else Vector3.FORWARD
+
+# Vrai si on déclenche la canne MAINTENANT (gâchette droite VR / clic gauche bureau) — uniquement canne en main.
+func rod_pressed() -> bool:
+	if _dead or not _rod_on:
+		return false
+	if _xr:
+		return _right != null and _right.get_is_active() and _right.get_float("trigger") > 0.6
+	return Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT)
+
+# Retour sensoriel : « ça mord » (touche) et « ferré ! » (prise) — haptique main droite + gilet.
+func bite_feedback() -> void:
+	_haptic(0.6, 0.12, 0.0, 1)
+	BHaptics.soft_tap(45.0)
+
+func catch_feedback() -> void:
+	_haptic(0.45, 0.1, 0.0, 1)
+	BHaptics.heal_pulse(0.5)
+
 # Sort l'arme `w` (ou null = dégainer) : range les deux armes, attache la nouvelle à la main, montre le bouclier.
 func _equip(w) -> void:
 	var was_armed := _armed   # pour distinguer une SORTIE fraîche (désarmé->armé) d'un CHANGEMENT d'arme (armé->arme)
 	if w != null and _tool != null:
 		_holster_tool()   # une arme en main => range l'outil de récolte (exclusif)
+	if w != null and _rod_on:
+		_holster_rod()    # … et la canne à pêche (exclusif)
 	for g in [_revolver, _plasma, _grenade]:
 		if g:
 			g.visible = false
@@ -507,7 +626,7 @@ func tool_hand_point() -> Vector3:
 
 # Vrai si le joueur essaie de cueillir MAINTENANT (mains nues = NON armé ; gâchette droite VR / clic gauche bureau).
 func harvest_pressed() -> bool:
-	if _armed or _dead:
+	if _armed or _dead or _rod_on:
 		return false
 	if _xr:
 		return _right != null and _right.get_is_active() and _right.get_float("trigger") > 0.6
@@ -817,6 +936,14 @@ func heal(amount: float) -> void:
 	_haptic(0.25, 0.1, 0.0, 0)
 	BHaptics.heal_pulse(clampf(amount / 25.0, 0.0, 1.0))   # gilet : nappe douce et chaude qui monte
 
+# Consommer un aliment (CP-CRAFT) : effet de réconfort TOUJOURS ressenti (son doux + haptique + gilet chaud,
+# plus marqué pour un repas copieux), puis soin RÉEL via heal() — sans effet sur les PV hors combat (gardé là).
+func eat(amount: float) -> void:
+	AudioEngine.play_ui_confirm()
+	_haptic(0.3, 0.13 + clampf(amount / 200.0, 0.0, 0.12), 0.0, 0)
+	BHaptics.heal_pulse(clampf(amount / 30.0, 0.0, 1.0))
+	heal(amount)
+
 # Confirmation de destruction d'un drone (appelée par WaveManager) : tic brillant + pulse manette droite.
 func on_kill() -> void:
 	AudioEngine.play_hit_confirm(true)
@@ -1059,13 +1186,15 @@ func _physics_process(delta: float) -> void:
 	if _vignette:
 		var amt := (Settings.vignette_strength * smoothstep(4.0, 18.0, get_real_velocity().length())) if Settings.vignette_on else 0.0
 		_vignette.place(get_active_camera(), amt, delta)
-	# Lampe nocturne : suit la caméra (bureau) ou la main droite (XR), pointe vers l'avant (-Z).
+	# Lampe-torche : suit la caméra (bureau) ou la MAIN GAUCHE (XR, là où est tenue la torche), pointe vers -Z.
 	if _lamp_on and _lamp:
-		var src: Node3D = _eyes
-		if _xr:
-			src = _right if (_right != null and _right.get_is_active()) else _xr_camera
-		if src:
-			_lamp.global_transform = src.global_transform
+		if _xr and _left != null and _left.get_is_active():
+			# Le faisceau part de la tête de la torche (un peu en avant de la main) le long du -Z de la main.
+			_lamp.global_transform = _left.global_transform * Transform3D(Basis(), Vector3(0.0, 0.0, -0.16))
+		else:
+			var src: Node3D = _xr_camera if _xr else _eyes
+			if src:
+				_lamp.global_transform = src.global_transform
 
 # Anti-blocage universel (marche) : si on POUSSE pour avancer mais qu'on n'avance pas (capsule enfoncée
 # dans le relief après un atterrissage rapide), on s'extrait vers la surface du sol après ~1 s. Ne fait
@@ -1191,12 +1320,16 @@ func _update_equipment() -> void:
 	if fly_pressed and not _fly_prev:
 		_toggle_fly()
 	_fly_prev = fly_pressed
-	# Lampe nocturne (bureau) : touche L (front montant). En XR, bascule depuis la montre (bouton Lampe).
+	# Lampe-torche : touche L (bureau) OU bouton Y gauche (XR), front montant. Toujours basculable aussi à la montre.
+	var lamp_pressed := false
+	if _xr:
+		lamp_pressed = _left != null and _left.get_is_active() and _left.is_button_pressed("by_button")
+	else:
+		lamp_pressed = Input.is_physical_key_pressed(KEY_L)
+	if lamp_pressed and not _lamp_prev:
+		toggle_lamp()
+	_lamp_prev = lamp_pressed
 	if not _xr:
-		var lamp_pressed := Input.is_physical_key_pressed(KEY_L)
-		if lamp_pressed and not _lamp_prev:
-			toggle_lamp()
-		_lamp_prev = lamp_pressed
 		var arm_pressed := Input.is_physical_key_pressed(KEY_B)   # revolver (combat opt-in)
 		if arm_pressed and not _arm_prev:
 			toggle_weapon()
@@ -1320,12 +1453,24 @@ func _update_swim_state() -> void:
 		if _swimming:
 			_swimming = false
 		return
-	var depth := SEA_Y - global_position.y   # profondeur d'eau au-dessus des pieds (>0 = pieds immergés)
+	var depth := sea_level_at(global_position.x, global_position.z) - global_position.y   # >0 = pieds immergés
 	if _swimming:
 		if is_on_floor() and depth < SWIM_EXIT_DEPTH:
 			_set_swimming(false)
 	elif depth > SWIM_ENTER_DEPTH:
 		_set_swimming(true)
+
+# Hauteur d'eau LOCALE (Y monde) à une position XZ, courbée comme le terrain et le plan d'eau visible
+# (drop = r²/2R autour de l'origine recentrée au rebase). Repli sur le plan plat SEA_Y tant que non réglé.
+func sea_level_at(px: float, pz: float) -> float:
+	if _sea_radius <= 0.0:
+		return SEA_Y
+	return _sea_y_world - (px * px + pz * pz) / (2.0 * _sea_radius)
+
+# Réglé par SurfaceView à l'entrée en surface : niveau de mer + rayon planète (active la courbure).
+func set_sea_params(sea_y: float, planet_radius: float) -> void:
+	_sea_y_world = sea_y
+	_sea_radius = planet_radius
 
 func _set_swimming(v: bool) -> void:
 	if v == _swimming:

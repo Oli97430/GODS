@@ -35,6 +35,10 @@ func setup(moons: Array, landing_dir: Vector3, player: Node3D) -> void:
 		add_child(mi)
 		_moons.append({"data": moon, "mesh": mi, "mat": mat})
 
+# Rebase : ré-ancre sur la position-planète courante (cohérence ciel↔sol : les lunes suivent le soleil).
+func set_landing_dir(dir: Vector3) -> void:
+	_landing_dir = dir.normalized()
+
 func _clear() -> void:
 	for m in _moons:
 		m.mesh.queue_free()

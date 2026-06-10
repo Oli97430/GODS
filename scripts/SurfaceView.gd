@@ -32,12 +32,13 @@ var _shafts       # rais de lumière sous-marins (LightShafts.gd) — god rays, 
 var _bubbles      # bulles sous-marines (Bubbles.gd) — montent autour du joueur
 var _harvest      # HarvestManager.gd — cueillette de fruits sur les arbres (CP2)
 var _build        # BuildManager.gd — mode construction planches/murs (CP4)
+var _fishing      # Fishing.gd — pêche depuis la côte (CP-PÊCHE)
 var _impact_burst # gerbe de débris d'atterrissage de puissance (ImpactBurst.gd) — déclenchée par PlayerController.impact
 var _waves         # WaveManager.gd : vagues de drones ennemis (combat opt-in, actif si le joueur est armé)
 var _rain: RainEffect
 var _lightning: LightningEffect
 var _surface_moons: SurfaceMoons   # phase 14 : lunes dans le ciel
-var _landing_dir := Vector3.UP   # lat/long fixe du point d'atterrissage (jour/nuit)
+var _landing_dir := Vector3.UP   # direction-planète de l'ancre courante (atterrissage, PUIS maj au rebase) ; pilote la détection jour/nuit
 var _waiting_ground := false
 var _ground_wait_elapsed := 0.0
 # Gilet bHaptics — cadences de l'ambiance surface (pluie / vent / cœur au calme).
@@ -70,6 +71,11 @@ func _ready() -> void:
 	# Étoiles de nuit (phase 12) : autres systèmes de la galaxie projetés.
 	_starfield = Starfield.new()
 	add_child(_starfield)
+	# Rebase à origine flottante : ré-aligne le CIEL (soleil + lunes + étoiles) sur la nouvelle ancre,
+	# sinon il dérive par rapport au sol (jusqu'à ~11° par rebase, seuil 600 m). Connecté UNE fois
+	# (persiste entre planètes ; chaque build() ré-installe la direction d'atterrissage de base).
+	if not _chunks.rebased.is_connected(_on_chunks_rebased):
+		_chunks.rebased.connect(_on_chunks_rebased)
 	# Pluie (phase 13) : GPU particles worldspace autour du joueur, pilotée par WeatherSystem.
 	_rain = RainEffect.new()
 	add_child(_rain)
@@ -114,6 +120,9 @@ func _ready() -> void:
 	add_child(_build)
 	_build.setup(_player)
 	_harvest.set_build_manager(_build)   # abattage des arbres PLANTÉS (tous les arbres sont coupables)
+	_fishing = preload("res://scripts/Fishing.gd").new()   # CP-PÊCHE : pêche depuis la côte (canne équipée)
+	add_child(_fishing)
+	_fishing.setup(_player)
 	# Arbres plantés = même matériau de vent/biolum PARTAGÉ que les arbres semés (éclairage cohérent).
 	_build.set_vegetation_material(_chunks.vegetation_library().wind_material())
 	# Atterrissage de puissance (Iron Man / Hulk) : gerbe de débris + onde de choc à l'impact d'une chute rapide.
@@ -148,6 +157,9 @@ func build(seed_local: int, landing_dir: Vector3, atmo_color: Color, star_system
 	_lightning.configure(seed_local)   # éclairs déterministes par seed
 	# Océan : niveau de mer + teinte partagés avec l'orbite (même seed) ; ciel = atmo_color.
 	_ocean.setup(seed_local, _sun, _player, SurfaceGenerator.DEFAULT_VERTICAL_SCALE, SurfaceGenerator.DEFAULT_PLANET_PHYS_RADIUS, atmo_color)
+	# Donne au joueur la hauteur de mer COURBÉE (= même drop que le terrain et le plan d'eau visible) pour que
+	# la nage déclenche pile sous l'eau visible, et plus jamais sur du sol sec courbé sous Y=0 (bord du rebase).
+	_player.set_sea_params(PlanetGenerator.sea_level_height(SurfaceGenerator.DEFAULT_VERTICAL_SCALE), SurfaceGenerator.DEFAULT_PLANET_PHYS_RADIUS)
 	# Eau inland (phase 23) : rivières + lacs, MÊME shader que l'océan mais SANS courbure de mer (déjà
 	# portée par la transform du chunk) + vagues réduites. Matériau PARTAGÉ par tous les chunks, maj/frame.
 	_inland_water_mat = ShaderMaterial.new()
@@ -219,6 +231,11 @@ func _setup_environment(atmo_color: Color) -> void:
 	# DISPARAISSENT, même en plein jour. On le met à 0 : le brouillard ne masque QUE le terrain lointain
 	# (bord de chargement) ; le ciel (soleil, nuages, étoiles, aurores) reste pleinement visible.
 	_surface_env.fog_sky_affect = 0.0
+	# Perspective AÉRIENNE (gratuit : même passe de fog) : le terrain LOINTAIN fond vers la couleur du ciel
+	# dans sa direction (et non vers une teinte unie) => profondeur photographique des collines/horizons.
+	_surface_env.fog_aerial_perspective = 0.6
+	# Diffusion solaire dans la brume (gratuit) : halo chaud autour du soleil dans le fog => levers/couchers riches.
+	_surface_env.fog_sun_scatter = 0.12
 	# Post-traitement d'immersion (tonemap AgX / glow / SSAO / SSIL) — partagé avec l'environnement espace.
 	ImmersionFX.apply(_surface_env)
 
@@ -227,6 +244,20 @@ func _setup_environment(atmo_color: Color) -> void:
 # Environment du ciel surface (appliqué à la caméra active par ViewManager).
 func get_environment() -> Environment:
 	return _surface_env
+
+# Rebase à origine flottante (ChunkManager) : le repère monde est ré-ancré sur la position-planète
+# COURANTE du joueur. On ré-aligne TOUT le ciel (soleil + lunes + étoiles) ET la détection jour/nuit
+# sur cette nouvelle ancre — sinon le ciel dérive par rapport au sol (jusqu'à ~11° par rebase). L'océan
+# suit déjà la lumière `_sun` (re-orientée par SkyManager), donc rien à faire de ce côté.
+func _on_chunks_rebased(_root_xf: Transform3D) -> void:
+	var anchor := _chunks.current_anchor_dir()
+	_landing_dir = anchor   # jour/nuit (sun_altitude) suit la position courante
+	if _sky:
+		_sky.set_landing_dir(anchor)
+	if _surface_moons:
+		_surface_moons.set_landing_dir(anchor)
+	if _starfield:
+		_starfield.set_landing_dir(anchor)
 
 # Sky3D (addon) = source du matériau de ciel + nuages volumétriques pour la surface. Lumières & fog de
 # Sky3D DÉSACTIVÉS (le projet garde son soleil _sun + brouillard) ; cycle interne en PAUSE — soleil &
@@ -379,12 +410,16 @@ func _process(delta: float) -> void:
 			_player.set_frozen(false)
 			_waiting_ground = false
 	# Immersion (univers sous-marin) calculée d'ABORD : la TÊTE (caméra active, casque OU FPS) sous le niveau
-	# de mer (Y0). Sert à l'ambiance + la vie sous-marine ET à MASQUER la vie AÉRIENNE sous l'eau (oiseaux/
-	# lucioles). La surface de l'eau est à Y monde = 0 (sea_level_height = DEFAULT_SEA_LEVEL=0 × vertical_scale).
+	# de mer. Sert à l'ambiance + la vie sous-marine ET à MASQUER la vie AÉRIENNE sous l'eau (oiseaux/lucioles).
+	# La surface de l'eau est COURBÉE (suit la sphère) : on mesure la tête sous la hauteur de mer LOCALE (même
+	# drop que la nage du PlayerController) => cohérent avec le plan d'eau visible, jamais immergé sur sol sec.
 	var cam := get_viewport().get_camera_3d()
 	var head_y := cam.global_position.y if cam else 100.0
-	var submerged := smoothstep(0.15, -0.5, head_y)
-	var depth01 := clampf(-head_y / 26.0, 0.0, 1.0)   # 0 surface -> 1 profond (~26 m sous la mer)
+	var head_depth := -100.0   # pas de caméra => bien au-dessus de l'eau (jamais immergé)
+	if cam:
+		head_depth = _player.sea_level_at(cam.global_position.x, cam.global_position.z) - head_y
+	var submerged := smoothstep(-0.15, 0.5, head_depth)
+	var depth01 := clampf(head_depth / 26.0, 0.0, 1.0)   # 0 surface -> 1 profond (~26 m sous la mer)
 	var air := 1.0 - smoothstep(0.05, 0.3, submerged)   # 1 hors de l'eau, 0 dès que la tête est immergée
 
 	# Vie nocturne AÉRIENNE (lucioles + oiseaux) : visible seulement HORS de l'eau (× air => disparaît sous
@@ -415,5 +450,7 @@ func _process(delta: float) -> void:
 		_harvest.update(delta, get_chunk_manager())
 	if _build:
 		_build.update(delta)
+	if _fishing:
+		_fishing.update(delta, get_chunk_manager())
 	AudioEngine.set_underwater(submerged)   # son étouffé sous l'eau (passe-bas Master, bypass hors de l'eau)
 	_update_ambient_haptics(delta)

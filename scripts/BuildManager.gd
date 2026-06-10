@@ -13,6 +13,15 @@ const PLANTED_SCAN_CAP := 48   # plafond de candidats d'abattage retournés/scan
 const GRIP_DELETE_TIME := 0.5   # s : maintien du grip VR (sur une pièce visée) pour SUPPRIMER (appui court = déplacer)
 const GRID := 1.0   # m : pas de grille des blocs cubiques (pose alignée + empilage face-à-face façon Minecraft)
 
+# Pièces qui reçoivent un MESH DÉDIÉ (composé de primitives, CP-CRAFT polish) au lieu d'une simple boîte.
+# La collision reste la boîte englobante (PIECES.size) — seul le visuel change. Les autres pièces (planches,
+# murs, blocs, dalles, lumières émissives…) restent des boîtes (déjà lisibles comme dalles/blocs).
+const DEDICATED_MESH := {
+	"table_wood": true, "chair_wood": true, "shelf_wood": true, "chest_wood": true, "barrel_wood": true,
+	"bed_wood": true, "column_stone": true, "statue_stone": true, "fence_wood": true, "ladder_wood": true,
+	"stairs_wood": true, "window_wood": true,
+}
+
 const HL := preload("res://scripts/HarvestLibrary.gd")   # noms FR des matériaux (rendus dans les invites)
 
 # Table des pièces constructibles : taille, couleur, propriétés matériau.
@@ -30,6 +39,33 @@ static var PIECES := {
 	"block_stone": {"size": Vector3.ONE, "color": Color(0.52, 0.52, 0.55), "metallic": 0.0,  "roughness": 0.92, "cube": true},
 	"block_leaf":  {"size": Vector3.ONE, "color": Color(0.26, 0.50, 0.24), "metallic": 0.0,  "roughness": 0.80, "cube": true},
 	"block_iron":  {"size": Vector3.ONE, "color": Color(0.62, 0.64, 0.68), "metallic": 0.70, "roughness": 0.35, "cube": true},
+	"block_copper":{"size": Vector3.ONE, "color": Color(0.72, 0.48, 0.30), "metallic": 0.60, "roughness": 0.38, "cube": true},
+	"block_gold":  {"size": Vector3.ONE, "color": Color(0.92, 0.76, 0.32), "metallic": 0.85, "roughness": 0.18, "cube": true},
+	# Construction étendue (CP-CRAFT) — pièces posables (boîtes simples ; meshes dédiés = CP polish).
+	"beam_wood":   {"size": Vector3(0.22, 0.22, 3.0), "color": Color(0.50, 0.36, 0.20), "metallic": 0.0, "roughness": 0.85},
+	"fence_wood":  {"size": Vector3(2.0, 1.0, 0.10),  "color": Color(0.54, 0.39, 0.22), "metallic": 0.0, "roughness": 0.85},
+	"ladder_wood": {"size": Vector3(0.8, 2.6, 0.10),  "color": Color(0.56, 0.41, 0.24), "metallic": 0.0, "roughness": 0.85},
+	"stairs_wood": {"size": Vector3(1.4, 1.0, 1.4),   "color": Color(0.52, 0.38, 0.21), "metallic": 0.0, "roughness": 0.85},
+	"window_wood": {"size": Vector3(1.3, 1.3, 0.10),  "color": Color(0.60, 0.46, 0.28), "metallic": 0.0, "roughness": 0.70},
+	"floor_stone": {"size": Vector3(2.0, 0.12, 2.0),  "color": Color(0.50, 0.49, 0.46), "metallic": 0.0, "roughness": 0.92},
+	# Mobilier / déco (CP-CRAFT).
+	"table_wood":  {"size": Vector3(1.4, 0.85, 0.9),  "color": Color(0.55, 0.40, 0.23), "metallic": 0.0, "roughness": 0.82},
+	"chair_wood":  {"size": Vector3(0.6, 1.0, 0.6),   "color": Color(0.55, 0.40, 0.23), "metallic": 0.0, "roughness": 0.82},
+	"shelf_wood":  {"size": Vector3(1.6, 1.8, 0.4),   "color": Color(0.52, 0.38, 0.22), "metallic": 0.0, "roughness": 0.84},
+	"chest_wood":  {"size": Vector3(1.0, 0.7, 0.7),   "color": Color(0.48, 0.34, 0.18), "metallic": 0.0, "roughness": 0.80},
+	"barrel_wood": {"size": Vector3(0.8, 1.0, 0.8),   "color": Color(0.50, 0.36, 0.20), "metallic": 0.0, "roughness": 0.82},
+	"bed_wood":    {"size": Vector3(1.2, 0.5, 2.2),   "color": Color(0.46, 0.40, 0.30), "metallic": 0.0, "roughness": 0.85},
+	"column_stone":{"size": Vector3(0.5, 2.5, 0.5),   "color": Color(0.55, 0.54, 0.50), "metallic": 0.0, "roughness": 0.90},
+	"statue_stone":{"size": Vector3(0.8, 2.2, 0.8),   "color": Color(0.58, 0.57, 0.53), "metallic": 0.0, "roughness": 0.90},
+	"rug_leaf":    {"size": Vector3(2.0, 0.05, 1.4),  "color": Color(0.45, 0.30, 0.32), "metallic": 0.0, "roughness": 0.95},
+	"banner_leaf": {"size": Vector3(1.0, 1.6, 0.06),  "color": Color(0.40, 0.50, 0.62), "metallic": 0.0, "roughness": 0.90},
+	# Lumière (CP-CRAFT) : émissives + lumière (comme lamp_gold).
+	"torch_wood":    {"size": Vector3(0.12, 0.9, 0.12), "color": Color(0.40, 0.28, 0.16), "metallic": 0.0,  "roughness": 0.80,
+					  "emission": Color(1.0, 0.62, 0.25), "emission_energy": 2.4, "light": true},
+	"brazier_stone": {"size": Vector3(0.6, 0.8, 0.6),   "color": Color(0.50, 0.48, 0.46), "metallic": 0.0,  "roughness": 0.88,
+					  "emission": Color(1.0, 0.55, 0.20), "emission_energy": 2.8, "light": true},
+	"lantern_iron":  {"size": Vector3(0.3, 0.5, 0.3),   "color": Color(0.58, 0.60, 0.64), "metallic": 0.70, "roughness": 0.30,
+					  "emission": Color(0.9, 0.92, 1.0), "emission_energy": 1.8, "light": true},
 }
 
 # Apparence visuelle par graine (couleur canopée + échelle adulte).
@@ -89,9 +125,7 @@ func setup(player: Node) -> void:
 	# Pré-construire meshes et matériaux de chaque pièce depuis la table PIECES.
 	for id in PIECES:
 		var p: Dictionary = PIECES[id]
-		var bm := BoxMesh.new()
-		bm.size = p["size"] as Vector3
-		_piece_meshes[id] = bm
+		_piece_meshes[id] = _build_piece_mesh(String(id), p)
 		var mat := StandardMaterial3D.new()
 		mat.albedo_color = p["color"] as Color
 		mat.metallic = float(p["metallic"])
@@ -175,10 +209,12 @@ func update(delta: float) -> void:
 	if not _active:
 		_edit_update(delta)
 		return
-	# Annulation si le joueur sort une arme ou un outil.
+	# Annulation si le joueur sort une arme, un outil ou la canne à pêche.
 	if _player.has_method("is_armed") and _player.is_armed():
 		stop(); return
 	if _player.has_method("active_tool") and _player.active_tool() != "":
+		stop(); return
+	if _player.has_method("is_fishing") and _player.is_fishing():
 		stop(); return
 	# Rotation (bureau : Q/E).
 	if Input.is_key_pressed(KEY_Q):
@@ -391,6 +427,130 @@ static func _species_of_seed(seed_id: String) -> int:
 		"seed_conifer": return SpeciesLibrary.Species.CONIFER
 		"seed_twisted": return SpeciesLibrary.Species.TWISTED
 	return SpeciesLibrary.Species.DECIDUOUS
+
+# ─── Meshes DÉDIÉS des pièces (mobilier / déco) ─────────────────────────────
+# Compose des primitives (BoxMesh / CylinderMesh) en UNE surface via SurfaceTool.append_from : normales et
+# winding garantis corrects (pas de mesh manuel). Repère LOCAL centré sur la boîte englobante (sol en y=-sz.y/2),
+# cohérent avec _place_center qui pose la pièce centrée en hauteur. Les pièces non dédiées restent des boîtes.
+func _build_piece_mesh(id: String, p: Dictionary) -> Mesh:
+	var sz: Vector3 = p["size"] as Vector3
+	if not DEDICATED_MESH.has(id):
+		var bm := BoxMesh.new()
+		bm.size = sz
+		return bm
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var g := -sz.y * 0.5   # niveau du sol dans le repère local
+	match id:
+		"table_wood":   _mk_table(st, sz, g)
+		"chair_wood":   _mk_chair(st, sz, g)
+		"shelf_wood":   _mk_shelf(st, sz, g)
+		"chest_wood":   _mk_chest(st, sz, g)
+		"barrel_wood":  _mk_barrel(st, sz, g)
+		"bed_wood":     _mk_bed(st, sz, g)
+		"column_stone": _mk_column(st, sz, g)
+		"statue_stone": _mk_statue(st, sz, g)
+		"fence_wood":   _mk_fence(st, sz, g)
+		"ladder_wood":  _mk_ladder(st, sz, g)
+		"stairs_wood":  _mk_stairs(st, sz, g)
+		"window_wood":  _mk_window(st, sz, g)
+	return st.commit()
+
+# Ajoute une boîte (centre + dimensions) à la surface en cours.
+func _part_box(st: SurfaceTool, center: Vector3, size: Vector3) -> void:
+	var b := BoxMesh.new()
+	b.size = size
+	st.append_from(b, 0, Transform3D(Basis(), center))
+
+# Ajoute un cylindre vertical (centre + rayon + hauteur) à la surface en cours.
+func _part_cyl(st: SurfaceTool, center: Vector3, radius: float, height: float, segs: int = 12) -> void:
+	var c := CylinderMesh.new()
+	c.top_radius = radius
+	c.bottom_radius = radius
+	c.height = height
+	c.radial_segments = segs
+	c.rings = 0
+	st.append_from(c, 0, Transform3D(Basis(), center))
+
+func _mk_table(st: SurfaceTool, sz: Vector3, g: float) -> void:
+	_part_box(st, Vector3(0, sz.y * 0.5 - 0.06, 0), Vector3(sz.x, 0.12, sz.z))          # plateau
+	var lh := sz.y - 0.12                                                                # pieds
+	var lx := sz.x * 0.5 - 0.1
+	var lz := sz.z * 0.5 - 0.1
+	for sx in [-1.0, 1.0]:
+		for sz2 in [-1.0, 1.0]:
+			_part_box(st, Vector3(lx * sx, g + lh * 0.5, lz * sz2), Vector3(0.1, lh, 0.1))
+
+func _mk_chair(st: SurfaceTool, sz: Vector3, g: float) -> void:
+	var seat_y := g + 0.46
+	_part_box(st, Vector3(0, seat_y, 0), Vector3(sz.x, 0.08, sz.z))                      # assise
+	_part_box(st, Vector3(0, seat_y + 0.31, -sz.z * 0.5 + 0.04), Vector3(sz.x, 0.62, 0.08))  # dossier
+	var lx := sz.x * 0.5 - 0.06
+	var lz := sz.z * 0.5 - 0.06
+	for sx in [-1.0, 1.0]:
+		for sz2 in [-1.0, 1.0]:
+			_part_box(st, Vector3(lx * sx, g + 0.23, lz * sz2), Vector3(0.08, 0.46, 0.08))
+
+func _mk_shelf(st: SurfaceTool, sz: Vector3, g: float) -> void:
+	_part_box(st, Vector3(0, 0, -sz.z * 0.5 + 0.03), Vector3(sz.x, sz.y, 0.06))          # fond
+	for sx in [-1.0, 1.0]:
+		_part_box(st, Vector3((sz.x * 0.5 - 0.04) * sx, 0, 0), Vector3(0.08, sz.y, sz.z))  # montants
+	for ty in [g + 0.1, 0.0, sz.y * 0.5 - 0.1]:                                          # tablettes
+		_part_box(st, Vector3(0, ty, 0), Vector3(sz.x - 0.16, 0.05, sz.z - 0.06))
+
+func _mk_chest(st: SurfaceTool, sz: Vector3, g: float) -> void:
+	_part_box(st, Vector3(0, g + 0.25, 0), Vector3(sz.x, 0.5, sz.z))                     # caisse
+	_part_box(st, Vector3(0, g + 0.5 + 0.1, 0), Vector3(sz.x - 0.04, 0.2, sz.z - 0.04))  # couvercle
+
+func _mk_barrel(st: SurfaceTool, sz: Vector3, _g: float) -> void:
+	_part_cyl(st, Vector3.ZERO, sz.x * 0.46, sz.y)                                       # fût
+	for ty in [-sz.y * 0.3, sz.y * 0.3]:                                                 # cerclages
+		_part_cyl(st, Vector3(0, ty, 0), sz.x * 0.49, 0.08)
+
+func _mk_bed(st: SurfaceTool, sz: Vector3, g: float) -> void:
+	_part_box(st, Vector3(0, g + 0.18, 0), Vector3(sz.x, 0.22, sz.z))                    # sommier
+	_part_box(st, Vector3(0, g + 0.34, 0.1), Vector3(sz.x - 0.1, 0.12, sz.z - 0.2))      # matelas
+	_part_box(st, Vector3(0, g + 0.45, -sz.z * 0.5 + 0.06), Vector3(sz.x, 0.7, 0.12))    # tête de lit
+
+func _mk_column(st: SurfaceTool, sz: Vector3, g: float) -> void:
+	_part_cyl(st, Vector3.ZERO, sz.x * 0.36, sz.y)                                       # fût
+	_part_box(st, Vector3(0, g + 0.1, 0), Vector3(sz.x, 0.2, sz.z))                      # socle
+	_part_box(st, Vector3(0, sz.y * 0.5 - 0.1, 0), Vector3(sz.x, 0.2, sz.z))             # chapiteau
+
+func _mk_statue(st: SurfaceTool, sz: Vector3, g: float) -> void:
+	_part_box(st, Vector3(0, g + 0.2, 0), Vector3(sz.x, 0.4, sz.z))                      # socle
+	_part_box(st, Vector3(0, g + 0.4 + 0.6, 0), Vector3(sz.x * 0.5, 1.2, sz.z * 0.4))    # corps
+	_part_box(st, Vector3(0, g + 0.4 + 1.2 + 0.18, 0), Vector3(sz.x * 0.32, 0.34, sz.z * 0.32))  # tête
+
+func _mk_fence(st: SurfaceTool, sz: Vector3, g: float) -> void:
+	for sx in [-1.0, 1.0]:
+		_part_box(st, Vector3((sz.x * 0.5 - 0.06) * sx, 0, 0), Vector3(0.12, sz.y, sz.z))  # poteaux
+	for ty in [g + 0.3, g + sz.y - 0.25]:                                                # lisses
+		_part_box(st, Vector3(0, ty, 0), Vector3(sz.x, 0.12, sz.z * 0.8))
+
+func _mk_ladder(st: SurfaceTool, sz: Vector3, g: float) -> void:
+	for sx in [-1.0, 1.0]:
+		_part_box(st, Vector3((sz.x * 0.5 - 0.05) * sx, 0, 0), Vector3(0.1, sz.y, sz.z))   # rails
+	var rungs := 5
+	for i in rungs:
+		var ry := g + 0.3 + (sz.y - 0.6) * float(i) / float(rungs - 1)
+		_part_box(st, Vector3(0, ry, 0), Vector3(sz.x - 0.18, 0.07, sz.z))                 # barreaux
+
+func _mk_stairs(st: SurfaceTool, sz: Vector3, g: float) -> void:
+	var steps := 4
+	var d := sz.z / float(steps)
+	for i in steps:
+		var h := sz.y * float(i + 1) / float(steps)
+		var zc := -sz.z * 0.5 + d * (float(i) + 0.5)
+		_part_box(st, Vector3(0, g + h * 0.5, zc), Vector3(sz.x, h, d))                    # marche
+
+func _mk_window(st: SurfaceTool, sz: Vector3, g: float) -> void:
+	_part_box(st, Vector3(0, sz.y * 0.5 - 0.1, 0), Vector3(sz.x, 0.2, sz.z))             # linteau
+	_part_box(st, Vector3(0, g + 0.1, 0), Vector3(sz.x, 0.2, sz.z))                      # appui
+	for sx in [-1.0, 1.0]:
+		_part_box(st, Vector3((sz.x * 0.5 - 0.1) * sx, 0, 0), Vector3(0.2, sz.y, sz.z))  # montants
+	_part_box(st, Vector3(0, 0, 0), Vector3(0.06, sz.y, sz.z))                           # meneau vertical
+	_part_box(st, Vector3(0, 0, 0), Vector3(sz.x, 0.06, sz.z))                           # traverse horizontale
 
 # ─── Mesh procédural d'arbuste (tronc cylindrique + canopée octaèdre) ───────
 func _make_sapling(canopy_color: Color) -> ArrayMesh:

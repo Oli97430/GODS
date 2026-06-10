@@ -4,7 +4,7 @@
 
 **GODS** est un explorateur spatial **contemplatif**, sans couture et déterministe, pour **PCVR** (et bureau), réalisé avec **Godot 4.6.2**. Au cœur, c'est de l'exploration pure — sans objectifs, sans menus qui gênent — à travers quatre échelles continues : **galaxie → système stellaire → planète (orbite) → surface de planète (à pied)**, avec une **couche de survie & craft**, un **mode combat arcade optionnel**, et une **coopération en ligne** par-dessus quand on en a envie. Tout est **généré procéduralement à partir d'un seed** : un même seed produit toujours le même univers, et ce que l'on voit depuis l'orbite est exactement ce que l'on foule au sol.
 
-> Mets un casque, choisis une étoile, plonge vers une planète, pose-toi, construis un abri pendant que le soleil se couche, et regarde les aurores illuminer le ciel nocturne.
+> Mets un casque, choisis une étoile, plonge vers une planète, pose-toi, fabrique une torche, va pêcher sur la côte pendant que le soleil se couche, et regarde les aurores illuminer le ciel pendant que ta ligne flotte.
 
 ---
 
@@ -23,6 +23,7 @@
 - **Archétypes de planètes** pour la variété (tempérée, aride, luxuriante, gelée, volcanique, alien).
 - **Cratères & volcans** intégrés au champ d'élévation partagé.
 - **Cycle jour/nuit & ciel dynamique** (nuages volumétriques, lever/coucher, **aurores** sur ~40 % des planètes la nuit).
+- **Étoiles, halo galactique & lunes occultés par les nuages** — la géométrie du dôme s'estompe là où un nuage passe devant, via une marche de transmittance nuageuse par shader synchronisée avec le ciel.
 - **Météo** (couverture nuageuse, pluie, orages avec éclairs déterministes) — même lieu + même heure → même météo.
 - **Lunes & anneaux** cohérents aux trois échelles.
 - **Faune** — tortues, oiseaux et autres créatures se promènent et réagissent à ta présence.
@@ -32,18 +33,48 @@
 - **Marche**, **saut**, **vol libre « Iron Man »** (armure sans gravité), et un **parapente** pour planer.
 - **Vignette de confort** qui se resserre avec la vitesse (anti-nausée), **rotation par cran ou continue**, le tout réglable.
 - **Panneau Options worldspace** en VR (sans enlever le casque) + un overlay plat au bureau — mêmes réglages.
-- **Ordinateur de poignet** en VR (regarde ton poignet gauche) : échelle, coordonnées, temps, météo, inventaire, craft, construction et points d'intérêt proches.
+- **Ordinateur de poignet** en VR (regarde ton poignet gauche) : échelle, coordonnées, temps, météo, inventaire, craft, pêche, construction et points d'intérêt proches.
 
 ### Survie & craft
-Tout le craft et la construction est **entièrement optionnel** — l'explorateur contemplatif est intact si tu l'ignores.
+Tout le craft, la construction et la pêche est **entièrement optionnel** — l'explorateur contemplatif est intact si tu l'ignores.
 
 - **Récolte** : cueille des fruits, **abats n'importe quel arbre** (geste hache) — sauvage, ceux que tu as plantés (une fois adultes) et les **arbres géants remarquables** — mine des rochers (geste pioche) pour obtenir pierre, fer, cuivre, or et cristaux.
 - **Fonte** des minerais en lingots dans l'onglet **Fonderie** de l'ordinateur de poignet.
-- **Fabrication** de pièces structurelles : planches, murs de pierre, toits de chaume, piliers en fer, portes en cuivre, lanternes dorées.
+- **Fabrication** — **36 recettes organisées en 6 catégories** :
+  - *Construction* — planches, murs de pierre, toits de chaume, piliers en fer, portes en cuivre, lanternes dorées.
+  - *Mobilier & Décor* — **12 modèles 3D dédiés** (table, chaise, étagère, coffre, tonneau, lit, colonne, statue, barrière, échelle, escalier, fenêtre) construits procéduralement.
+  - *Blocs* — blocs cubiques bois, pierre, feuillage, fer.
+  - *Nourriture* — plats cuisinés à partir des récoltes.
+  - *Pêche* — **canne à pêche** (4 bois).
 - **Construction** : pose les pièces avec un aperçu fantôme, accroche-toi au terrain et empile-les pour construire abris et tours.
 - **Édition des constructions** : vise une pièce posée pour la supprimer (ressource remboursée) ou la prendre et la déplacer — édition non destructive.
-- **Blocs cubiques façon Minecraft** (1 m³) : bois, pierre, feuillage, fer — **pose sur grille**, **empilage face à face** (vise une face d'un bloc existant pour coller le suivant flush). Construis des murs, des tours, des pièces bloc par bloc.
+- **Blocs cubiques façon Minecraft** (1 m³) : pose sur grille, empilage face à face.
 - **Jardinage** : décompose un fruit en graine, plante-la dans le sol, et un nouvel arbre pousse avec le temps.
+
+### Pêche
+- **Fabrique une canne à pêche** (4 bois, onglet Pêche de la montre).
+- **Équipe-la** depuis l'inventaire Sac en un tap — la canne apparaît dans ta main droite ; l'outil de récolte et les armes se rangent automatiquement.
+- **Va sur la côte** — repère un endroit où l'eau est assez profonde au bord du rivage.
+- **Lance** avec la gâchette : la ligne part en arc et le bouchon se pose. Attends la touche…
+- **Ferre** à la touche en rappuyant sur la gâchette : **5 variétés** (petit / moyen / grand / rare, ou un trinquet d'algues), chacun avec sa valeur de soin. **Retour haptique** manette à la touche et à la prise.
+- Les poissons soignent quand tu les manges depuis l'inventaire **Sac**.
+
+### Inventaire enrichi (Sac)
+L'onglet **Sac** affiche maintenant les objets groupés par catégorie avec des **actions contextuelles par objet** :
+- **Manger** — nourriture & poissons restaurent la santé.
+- **Décomposer** — fruit → graine prête à planter.
+- **Planter** — pose une graine directement dans le sol.
+- **Poser** — dépose une pièce de mobilier dans le monde.
+- **Équiper** — les objets de type équipement (canne à pêche) vont directement en main.
+
+### Torche à main gauche
+Une **torche procédurale** est toujours attachée à ta main gauche. Active-la avec **Y (gauche)** en VR (ou **L** au bureau) pour une source de lumière instantanée la nuit — sans aucun prérequis de craft.
+
+### Qualité graphique
+- **Cascades d'ombres directionnelles** (2 splits, 120 m, fondus) — chaque arbre, rocher, créature et construction projette une ombre nette sur le terrain.
+- **Perspective aérienne** — le terrain lointain se fond dans la brume atmosphérique, cohérent avec la vue orbitale.
+- **Debanding par dithering** — supprime les bandes de dégradé visibles sur les dalles OLED/LCD des casques dans les ciels du crépuscule.
+- **Filtrage anisotropique 16×** — les textures restent nettes à angle rasant sur le terrain et les constructions.
 
 ### Matériel
 - **OpenXR** (Virtual Desktop / SteamVR / natif) avec **manettes ou suivi des mains**.
@@ -88,6 +119,7 @@ C'est tout.
 | **Espace** | Sauter |
 | **F** | Activer le vol Iron Man (Espace = monter, C = descendre, Maj = boost) |
 | **E** | Déployer / replier le parapente (en l'air) |
+| **L** | Allumer/éteindre la torche à main gauche |
 | **Clic gauche / Entrée** | Sélectionner / descendre d'une échelle (atterrir, etc.) |
 | **Échap** | Remonter d'une échelle / annuler la pose |
 | **Tab** | Ouvrir/fermer le menu Options |
@@ -103,11 +135,12 @@ C'est tout.
 | **A (droite)** | Sauter |
 | **B (droite)** | Activer le vol Iron Man |
 | **X (gauche)** | Déployer / replier le parapente (en l'air) |
-| **Y (gauche)** | Remonter en orbite |
+| **Y (gauche)** | Allumer/éteindre la torche à main gauche |
 | **☰ menu (gauche)** | Ouvrir/fermer le panneau Options worldspace |
 | **Visée manette droite + gâchette** *(ou index)* | Interagir avec les panneaux / la montre |
-| **Regarder son poignet gauche** | Ordinateur de poignet (inventaire, craft, construction…) |
+| **Regarder son poignet gauche** | Ordinateur de poignet (inventaire, craft, pêche, construction…) |
 | **Gâchette** *(en mode pose)* | Poser une pièce / un bloc |
+| **Gâchette** *(canne équipée, bord de l'eau)* | Lancer / ferrer la ligne |
 | **Grip (appui court)** *(visé sur une pièce)* | La supprimer (ressource remboursée) |
 | **Grip (maintenu ~0,5 s)** *(visé sur une pièce)* | La ramasser et la déplacer |
 
@@ -124,8 +157,8 @@ C'est tout.
 |---|---|
 | **Sonde** | Sonde planétaire — biome, altitude, heure |
 | **Temps** | Contrôle du temps (pause / accélération / temps réel) |
-| **Sac** | Inventaire (objets collectés, manger pour se soigner) |
-| **Bâtir** | Fonderie · Construction · Blocs · Jardinage |
+| **Sac** | Inventaire — objets par catégorie avec actions contextuelles (manger / décomposer / planter / poser / équiper) |
+| **Bâtir** | Fonderie · Fabrication (36 recettes) · Blocs · Jardinage · Équipement de pêche |
 | **Coop** | Coopération (héberger / rejoindre / quitter) |
 
 ---
@@ -168,6 +201,9 @@ Projet Godot standard.
 - **Génération de chunks hors-thread** (`WorkerThreadPool`) — pure, déterministe, avec insertion budgétée sur le thread principal et pooling de nodes.
 - **Terrain sans couture** via normales analytiques par halo ; **geomorphing LOD** contre le popping.
 - **Rebasage à origine flottante** pour la précision kilométrique à pied.
+- **Formule de niveau de mer courbé** (`sea_y - r²/2R`) partagée entre le vertex shader de l'eau, la vérification de nage et la profondeur d'immersion — élimine les faux déclenchements « sous l'eau » sur terrain sec courbé.
+- **Occlusion nuageuse de la géométrie céleste** — un include partagé `cloud_occlusion.gdshaderinc` réplique le champ nuageux dans chaque shader du dôme (étoiles, galaxie, lunes) via des uniforms globaux poussés à chaque frame ; la géométrie du sky-pass Forward+ ne peut pas être depth-clippée, donc l'occlusion est calculée analytiquement sur le GPU.
+- **Catalogue de craft orienté données** (`CraftLibrary`, 36 recettes) dispatché par la montre avec filtrage par catégorie et affichage du coût en ressources.
 - **Hydrologie** (flow map + érosion) bakée hors-thread au 1er accès planète ; rivières/lacs/cascades en découlent.
 - **UI worldspace** (montre & panneau options) rendue dans des `SubViewport` sur des quads, pilotée par rayon/doigt réinjecté en événements souris synthétiques.
 - **Audio DSP fait maison** alimentant des `AudioStreamGenerator` (oscillateurs, biquads, enveloppes, bruit).
@@ -179,7 +215,7 @@ Projet Godot standard.
 
 ```
 scripts/        GDScript (générateurs, vues, joueur, XR, audio/, …)
-shaders/        .gdshader (terrain, eau, ciel, nuages, atmosphère, vignette, cascade, …)
+shaders/        .gdshader / .gdshaderinc (terrain, eau, ciel, nuages, atmosphère, vignette, cascade, …)
 scenes/         Main.tscn, WristComputer.tscn, …
 addons/         addons tiers (le cas échéant)
 project.godot   config moteur (autoloads, OpenXR, Jolt, D3D12)

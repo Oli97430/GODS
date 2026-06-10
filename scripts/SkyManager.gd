@@ -52,7 +52,17 @@ func setup(sun: DirectionalLight3D, landing_dir: Vector3, env: Environment, atmo
 	_submerged = 0.0   # nouvel environnement => repart au-dessus de l'eau
 	_compute_aurora(seed_local)
 	if _sun:
-		_sun.shadow_enabled = false   # mobile-friendly (pas d'ombres dynamiques)
+		# Ombres dynamiques du soleil (PCVR) : LE plus gros gain visuel au sol — arbres/rochers/constructions
+		# ancrés par leur ombre, relief du terrain lisible. Réglage CONSERVATEUR (2 splits, 120 m, fondu) :
+		# coût mesuré faible sur la cible RTX 3090. (Une passe Quest pourra le recouper en un seul point.)
+		_sun.shadow_enabled = true
+		_sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS
+		_sun.directional_shadow_max_distance = 120.0     # au-delà, la perspective aérienne prend le relais
+		_sun.directional_shadow_split_1 = 0.18           # split proche serré => ombres nettes à portée de main
+		_sun.directional_shadow_fade_start = 0.75        # fondu doux avant la limite (pas de bord d'ombre sec)
+		_sun.directional_shadow_blend_splits = true      # transition invisible entre les 2 cascades
+		_sun.shadow_blur = 1.2                           # pénombre douce (anti-aliasing d'ombre, pas de scintillement VR)
+		_sun.light_angular_distance = 0.5                # taille angulaire du soleil => pénombre physique douce
 	_build_sky()
 	_update(0.0)
 
@@ -103,6 +113,12 @@ func set_lightning(l: LightningEffect) -> void:
 func set_dome(d) -> void:
 	_dome = d
 
+# Rebase à origine flottante : le repère monde est ré-ancré sur la position-planète COURANTE du joueur.
+# SurfaceView pousse ici la nouvelle ancre pour que le soleil + le ciel restent alignés avec le sol
+# (sinon le soleil dérive jusqu'à ~11° par rebase, seuil 600 m).
+func set_landing_dir(dir: Vector3) -> void:
+	_landing_dir = dir.normalized()
+
 # Univers sous-marin (CP1a) : facteur 0..1 d'immersion de la tête (caméra sous le niveau de mer Y0),
 # poussé chaque frame par SurfaceView. _update fond le fog/ambient vers l'ambiance sous-marine quand >0.
 func set_submerged(f: float, depth01: float = 0.0) -> void:
@@ -149,6 +165,10 @@ func _update(_dt: float) -> void:
 		_sky_mat.set_shader_parameter("cloud_coverage", coverage)
 		_sky_mat.set_shader_parameter("lightning", flash)
 		_sky_mat.set_shader_parameter("clouds_on", 1.0 if GameState.atmosphere_enabled else 0.0)
+	# Globaux d'occlusion : étoiles/galaxies/lunes (géométrie du dôme) s'estompent là où un nuage passe devant
+	# (le ciel — donc les nuages — est dessiné DERRIÈRE la géométrie ; on recalcule la transmittance côté dôme).
+	RenderingServer.global_shader_parameter_set("cloud_coverage_g", coverage)
+	RenderingServer.global_shader_parameter_set("clouds_on_g", 1.0 if GameState.atmosphere_enabled else 0.0)
 
 	# Sky3D (addon) : pousse le soleil (depuis sun_local => cohérent avec l'orbite) + la couverture météo.
 	if _dome != null:

@@ -5,8 +5,11 @@ render_mode unshaded, blend_add, cull_disabled, depth_draw_never, fog_disabled, 
 // 'night' poussée par Starfield (0 jour => invisible, 1 nuit). depth_draw_never + depth_test
 // par défaut : le terrain occulte le dôme sous l'horizon, le ciel le laisse passer au-dessus.
 
+#include "res://shaders/cloud_occlusion.gdshaderinc"
+
 uniform float night = 0.0;
 varying float v_tw;   // facteur de scintillement précalculé en vertex (petites étoiles seulement)
+varying vec3 v_cdir;  // direction MONDE de l'étoile (pour l'occlusion par les nuages)
 
 float h13(vec3 p) {
 	p = fract(p * 0.1031);
@@ -23,6 +26,7 @@ void vertex() {
 	float ph = h13(MODEL_MATRIX[3].xyz);
 	float tw = 0.62 + 0.38 * sin(TIME * (1.4 + ph * 2.2) + ph * 6.2831853);
 	v_tw = mix(1.0, tw, step(sx, 8.0));
+	v_cdir = normalize(MODEL_MATRIX[3].xyz - CAMERA_POSITION_WORLD);   // direction monde de l'étoile
 	MODELVIEW_MATRIX = VIEW_MATRIX * mat4(
 		MAIN_CAM_INV_VIEW_MATRIX[0] * sx,
 		MAIN_CAM_INV_VIEW_MATRIX[1] * sy,
@@ -37,5 +41,5 @@ void fragment() {
 	float a = smoothstep(1.0, 0.0, r);
 	a *= a;
 	ALBEDO = COLOR.rgb;
-	ALPHA = a * night * v_tw;
+	ALPHA = a * night * v_tw * cloud_transmittance(v_cdir);   // estompée si un nuage passe devant
 }

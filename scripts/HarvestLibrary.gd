@@ -9,6 +9,9 @@ extends RefCounted
 
 # --- Catégories (chaîne libre, sert au tri/regroupement dans l'UI) ---
 const KIND_FRUIT := "fruit"
+const KIND_FOOD := "food"    # plats cuisinés (CP-CRAFT) : comestibles (heal > 0), comme les fruits mais préparés
+const KIND_FISH := "fish"    # poissons pêchés (CP-PÊCHE) : comestibles (heal > 0)
+const KIND_GEAR := "gear"    # équipement craftable porté en main (canne à pêche…) — ni placeable, ni comestible
 const KIND_SEED := "seed"
 const KIND_LEAF := "leaf"
 const KIND_WOOD := "wood"
@@ -19,7 +22,7 @@ const KIND_METAL := "metal"  # lingots fondus (fer, cuivre, or) — produits int
 const KIND_BUILD := "build"  # éléments construits (planches, murs, toits…) — plaçables dans le monde
 
 # Ordre d'affichage des catégories dans le panneau d'inventaire.
-const KIND_ORDER: Array[String] = [KIND_FRUIT, KIND_SEED, KIND_LEAF, KIND_WOOD, KIND_STONE, KIND_ORE, KIND_GEM, KIND_METAL, KIND_BUILD]
+const KIND_ORDER: Array[String] = [KIND_FRUIT, KIND_FOOD, KIND_FISH, KIND_SEED, KIND_LEAF, KIND_WOOD, KIND_STONE, KIND_ORE, KIND_GEM, KIND_METAL, KIND_BUILD, KIND_GEAR]
 
 # --- Table des items (static var => initialisée une fois ; autorise les Color()). ---
 static var ITEMS := {
@@ -69,6 +72,41 @@ static var ITEMS := {
 	"block_stone":    {"name": "Bloc de pierre",    "color": Color(0.52, 0.52, 0.55), "kind": KIND_BUILD},
 	"block_leaf":     {"name": "Bloc de feuillage", "color": Color(0.26, 0.50, 0.24), "kind": KIND_BUILD},
 	"block_iron":     {"name": "Bloc de fer",       "color": Color(0.62, 0.64, 0.68), "kind": KIND_BUILD},
+	"block_copper":   {"name": "Bloc de cuivre",    "color": Color(0.72, 0.48, 0.30), "kind": KIND_BUILD},
+	"block_gold":     {"name": "Bloc d'or",         "color": Color(0.92, 0.76, 0.32), "kind": KIND_BUILD},
+	# Construction étendue (CP-CRAFT) : pièces posables supplémentaires.
+	"beam_wood":      {"name": "Poutre",            "color": Color(0.50, 0.36, 0.20), "kind": KIND_BUILD},
+	"fence_wood":     {"name": "Clôture",           "color": Color(0.54, 0.39, 0.22), "kind": KIND_BUILD},
+	"ladder_wood":    {"name": "Échelle",           "color": Color(0.56, 0.41, 0.24), "kind": KIND_BUILD},
+	"stairs_wood":    {"name": "Escalier",          "color": Color(0.52, 0.38, 0.21), "kind": KIND_BUILD},
+	"window_wood":    {"name": "Fenêtre",           "color": Color(0.60, 0.46, 0.28), "kind": KIND_BUILD},
+	"floor_stone":    {"name": "Dalle",             "color": Color(0.50, 0.49, 0.46), "kind": KIND_BUILD},
+	# Mobilier / déco (CP-CRAFT).
+	"table_wood":     {"name": "Table",             "color": Color(0.55, 0.40, 0.23), "kind": KIND_BUILD},
+	"chair_wood":     {"name": "Chaise",            "color": Color(0.55, 0.40, 0.23), "kind": KIND_BUILD},
+	"shelf_wood":     {"name": "Étagère",           "color": Color(0.52, 0.38, 0.22), "kind": KIND_BUILD},
+	"chest_wood":     {"name": "Coffre",            "color": Color(0.48, 0.34, 0.18), "kind": KIND_BUILD},
+	"barrel_wood":    {"name": "Tonneau",           "color": Color(0.50, 0.36, 0.20), "kind": KIND_BUILD},
+	"bed_wood":       {"name": "Lit",               "color": Color(0.46, 0.40, 0.30), "kind": KIND_BUILD},
+	"column_stone":   {"name": "Colonne",           "color": Color(0.55, 0.54, 0.50), "kind": KIND_BUILD},
+	"statue_stone":   {"name": "Statue",            "color": Color(0.58, 0.57, 0.53), "kind": KIND_BUILD},
+	"rug_leaf":       {"name": "Tapis",             "color": Color(0.45, 0.30, 0.32), "kind": KIND_BUILD},
+	"banner_leaf":    {"name": "Banderole",         "color": Color(0.40, 0.50, 0.62), "kind": KIND_BUILD},
+	# Lumière (CP-CRAFT) : émissives.
+	"torch_wood":     {"name": "Torche",            "color": Color(0.85, 0.55, 0.25), "kind": KIND_BUILD},
+	"brazier_stone":  {"name": "Brasero",           "color": Color(0.50, 0.48, 0.46), "kind": KIND_BUILD},
+	"lantern_iron":   {"name": "Lanterne de fer",   "color": Color(0.58, 0.60, 0.64), "kind": KIND_BUILD},
+	# Cuisine (CP-CRAFT) : consommables (soin via « Manger »).
+	"meal_cooked":    {"name": "Repas chaud",       "color": Color(0.82, 0.52, 0.30), "kind": KIND_FOOD, "heal": 45.0},
+	"dried_fruit":    {"name": "Fruits séchés",     "color": Color(0.74, 0.46, 0.34), "kind": KIND_FOOD, "heal": 15.0},
+	# Pêche (CP-PÊCHE) : poissons comestibles (soin via « Manger ») + déchet pour la saveur.
+	"fish_small":     {"name": "Petit poisson",     "color": Color(0.66, 0.72, 0.78), "kind": KIND_FISH, "heal": 12.0},
+	"fish_medium":    {"name": "Poisson",           "color": Color(0.56, 0.66, 0.74), "kind": KIND_FISH, "heal": 24.0},
+	"fish_large":     {"name": "Gros poisson",      "color": Color(0.48, 0.58, 0.70), "kind": KIND_FISH, "heal": 40.0},
+	"fish_rare":      {"name": "Poisson chatoyant", "color": Color(0.55, 0.85, 0.80), "kind": KIND_FISH, "heal": 60.0},
+	"trinket_kelp":   {"name": "Touffe d'algues",   "color": Color(0.34, 0.50, 0.32), "kind": KIND_FISH, "heal": 0.0},   # prise sans valeur
+	# Équipement craftable porté en main (CP-PÊCHE) : canne à pêche (équipée depuis le Sac / la montre).
+	"fishing_rod":    {"name": "Canne à pêche",     "color": Color(0.58, 0.42, 0.26), "kind": KIND_GEAR},
 }
 
 # --- Portées / gestes / repousse (s = secondes réelles) ---
